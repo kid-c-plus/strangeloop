@@ -126,7 +126,9 @@ class Pedal():
 
     def newsession(self, nickname):
         serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}).text
-        if serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
+        if serverresponse == FAILURE_RETURN:
+            self.getsession()
+        elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
             self.sessionid = serverresponse 
             self.owner = True
             self.compositepollthread.start()
@@ -139,11 +141,15 @@ class Pedal():
             self.sessionid = None
             self.owner = False
             self.compositepollthread.stop.set()
+        else:
+            self.getsession()
         return serverresponse
 
     def joinsession(self, nickname, sessionid):
         serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
-        if serverresponse == SUCCESS_RETURN:
+        if serverresponse == FAILURE_RETURN:
+            self.getsession()
+        elif serverresponse == SUCCESS_RETURN:
             self.sessionid = sessionid
             self.owner = False
             self.compositepollthread.start()
