@@ -1,0 +1,42 @@
+<html>
+    <head>
+        <title>strangeloop</title>
+        <link rel="stylesheet/css" src="style.css" />
+        <script src="script.js"></script>
+    </head>
+    <body>
+        <div id="sessioncontrol" class="controlunit">
+            <div id="sessionmessagecontainer">
+                {% for message in get_flashed_messages() %}
+                    <div class="flash">{{ message }}</div>
+                {% endfor %}
+            </div>
+            <label id="sessionid">{% pedal.sessionid if pedal.sessionid else "No Session" %}</label>
+            <form id="newsessionform" action="/newsession" method="post">
+            <!-- <div id="newsessiondiv"> -->
+                <label id="newsessionlabel">New Session:</label>
+                <input type="text" id="newsessionnick" name="nickname" placeholder="Your Nickname" {% "disabled" if pedal.sessionid else "" %}>
+                <input type="submit" id="newsessionsubmit" value="Create New Session" {% "disabled" if pedal.sessionid else "" %}>
+                <!-- <button id="newsessionbutton" onclick='submitform("newsession", "newsessiondiv");'>Create New Session -->
+            </form>
+            <form id="joinsessionform" action="/joinsession" method="post">
+            <!-- <div id="joinsessiondiv"> -->
+                <label id="joinsessionlabel">Join Session:</label>
+                <input type="text" id="joinsessionid" name="sessionid" placeholder="Session to Join" {% "disabled" if pedal.sessionid else "" %}>
+                <input type="text" id="joinsessionnick" name="nickname" placeholder="Your Nickname" {% "disabled" if pedal.sessionid else "" %}>
+                <input type="submit" id="joinsessionsubmit" value="Join Session" {% "disabled" if pedal.sessionid else "" %}>
+            </form>
+            <!-- <button id="leavesession" onclick="leaveSession();">Leave Session</button>
+            <button id="endsession" onClick="endSession();">End Session</button> -->
+            <form id="leavesessionform" action="/leavesession" method="post">
+                <input type="submit" id="leavesessionsubmit" value="Leave Session" {% "" if pedal.sessionid else "disabled" %}>
+            </form>
+            <form id="endsessionform" action="/endsession" method="post">
+                <input type="submit" id="endsessionsubmit" value="End Session" (% "" if (pedal.sessionid and pedal.owner) else "disabled" %}>
+            </form>
+        </div>
+        <div id="loopcontrol" class="controlunit">
+            <button id="toggleloop" onclick="toggleLoop();">
+        </div>
+    </body>
+</html>
