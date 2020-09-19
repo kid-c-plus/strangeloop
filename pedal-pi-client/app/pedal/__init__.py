@@ -4,9 +4,8 @@ import time
 import atexit
 from threading import Thread, Event, main_thread
 from datetime import datetime
-from pydub import AudioSegment
 from io import BytesIO
-import libbcm2835._bcm2835 as soc
+from . import rpi
 
 # -------------
 #   Constants
@@ -22,27 +21,32 @@ NONE_RETURN = "None"
 END_LOOP_SLEEP = 0.1
 COMPOSITE_POLL_INTERVAL = 2
 
-AUDIO_CHUNK = 256 
-PYAUDIO_ARGS = {
-    'format'            : pyaudio.paInt16,
-    'channels'          : 2,
-    'rate'              : 44100,
-    'frames_per_buffer' : AUDIO_CHUNK
-}
-
-PYDUB_ARGS = {
-    'sample_width'  : 2,
-    }
-
-FOOT_SWITCH = 15;
-LED         = 16;
-AUDIO_OUT   = {
+PUSHBUTTON1     = 14
+PUSHBUTTON2     = 20
+TOGGLESWITCH    = 12
+FOOTSWITCH      = 15
+LED             = 16
+AUDIO_OUT       = {
     'PWM0'  : 18,
     'PWM1'  : 13
 }
 
+# pushbutton GPIO values
+PUSHBUTTON_PRESS    = 0
+PUSHBUTTON_RELEASE  = 1
+
+# toggle switch GPIO values
+TOGGLESWITCH_OFF    = 0
+TOGGLESWITCH_ON     = 1
+
+# footswitch GPIO values
+FOOTSWITCH_MON      = 0
+FOOTSWITCH_BYPASS   = 1
+
 # class handling all the basic functionality of a looper pedal. the Flask UI receives and interacts with an instance of this class
 class Pedal():
+
+    # Thread superclass that periodically polls server for new additions to the composite
     class CompositePollingThread(Thread):
         def __init__(self, pedal):
             Thread.__init__(self)
@@ -55,42 +59,90 @@ class Pedal():
                 if self.pedal.getcomposite(timestamp=self.timestamp):
                     self.timestamp = datetime.now().timestamp()
 
+
+    # Thread superclass that reads audio from AUDIO_IN and sends it to AUDIO_OUT along with composite data, if it is present
+    # Does not monitor Raspberry Pi buttons for user input
     class AudioProcessingThread(Thread):
         def __init__(self, pedal, daemon=True):
             Thread.__init__(self, daemon=daemon)
             self.pedal = pedal
             
         def run(self):
-            import pyaudio
-            audio = pyaudio.PyAudio()
-            audioin = audio.open(input=True, start=True, **PYAUDIO_ARGS)
-            monitorout = audio.open(output=True, **PYAUDIO_ARGS)
-            compositeout = audio.open(output=True, **PYAUDIO_ARGS)
+            compositeindex = 0
+            while self.pedal.running:
+                if self.pedal.monitoring:
+                    inputbits = self.pedal.audioin.read()
+                    outputbits = inputbits
+                    if self.pedal.compositedata:
+                        compositebits = self.pedal.compositedata[compositeindex]
+                        outputbits = (inputbits + compositebits) >> 1
+                        compositeindex = (compositeindex + 1) % len(self.pedal.compositedata)
+                    else:
+                        compositeindex = 0
 
-            if soc.bcm2835_init():
-                soc.bcm2835_gpio_fsel(18, 
-                while self.pedal.monitoring:
-                    compositeindex = 0
-                    inputchunk = audioin.read(AUDIO_CHUNK, exception_on_overflow=False)
-                    while inputchunk != b"":
-                        monitorout.write(inputchunk)
-                        if self.pedal.compositedata:
-                            compositechunk = self.pedal.compositedata[compositeindex : min(compositeindex + len(inputchunk), len(self.pedal.compositedata))]
-                            while len(compositechunk) < len(inputchunk):
-                                compositechunk += self.pedal.compositedata[: min(len(inputchunk) - len(compositechunk), len(self.pedal.compositedata))]
-                            compositeout.write(compositechunk)
-                            compositeindex = (compositeindex + len(inputchunk)) % len(self.pedal.compositedata)
-                        if self.pedal.recording and (not self.pedal.compositedata or len(self.pedal.loopdata) < len(self.pedal.compositedata)):
-                            if not self.pedal.compositedata:
-                                self.pedal.loopdata += inputchunk
-                            elif len(self.pedal.loopdata) < len(self.pedal.compositedata):
-                                self.pedal.loopdata += inputchunk[:min(len(inputchunk), len(self.pedal.compositedata) - len(self.pedal.loopdata))]
-                            if self.pedal.firstrec:
+                    if self.pedal.recording:
+                        # (outputbits + inputbits) >> 1: add the two signals together and divide them by two, providing the mean
+                        # either there is no composite yet, or we haven't yet exceeded the length of the composite
+                        # some loop pedals act differently, but we're just gonna truncate everything after the first take
+                        if not self.pedal.compositedata or len(self.pedal.loopdata) < len(self.pedal.compositedata):
+                            if not self.pedal.compositedata or len(self.pedal.loopdata) < len(self.pedal.compositedata):
+                                self.pedal.loopdata.append(inputbits)
+                            if self.pedal.firstrecpass:
+                                # we need to keep track of where we started recording relative to the composite
                                 self.pedal.loopoffset = compositeindex
-                                self.pedal.firstrec = False
-                        inputchunk = audioin.read(AUDIO_CHUNK, exception_on_overflow=False)
+                                self.pedal.firstrecpass = False
+                    self.pedal.audioout.write(outputbits)
+
+    # Thread superclass to monitor RPi components and change pedal state accordingly
+    class RPiMonitoringThread(Thread):
+        def __init__(self, pedal):
+            Thread.__init__(self)
+            self.pedal = pedal
+
+        def run(self):
+            while self.pedal.running:
+                debounce_delay = False
+
+                footswitch_val  = self.pedal.footswitch.read()
+                pushbutton1_val = self.pedal.pushbutton1.read()
+                pushbutton2_val = self.pedal.pushbutton2.read()
+
+                if footswitch_val == FOOTSWITCH_MON and not self.pedal.monitoring:
+                    self.pedal.monitoring = True
+                    debounce_delay = True
+                elif footswitch_val == FOOTSWITCH_BYPASS and self.pedal.monitoring:
+                    self.pedal.monitoring = False
+                    if self.pedal.recording:
+                        self.pedal.endloop()
+                    debounce_delay = True
+
+                if pushbutton1_val == PUSHBUTTON_PRESS:
+                    self.pedal.removeloop()
+                    debounce_delay = True
+
+                if pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and not self.pedal.recording:
+                    self.pedal.startloop()
+                    debounce_delay = True
+                elif pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording:
+                    self.pedal.endloop()
+                    debounce_delay = True
+
+                if debounce_delay:
+                    # delay to account for button debouncing, though I'm not sure it's a HUGE deal with a footswitch specifically
+                    rpi.debounce_delay()
+
 
     def __init__(self, debug=False):
+        self.pushbutton1    = rpi.GPIO(PUSHBUTTON1, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
+        self.pushbutton2    = rpi.GPIO(PUSHBUTTON2, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
+        self.toggleswitch   = rpi.GPIO(TOGGLESWITCH, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
+        self.footswitch     = rpi.GPIO(FOOTSWITCH, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
+        self.led            = rpi.GPIO(LED, rpi.GPIO.FSEL.OUTPUT)
+        self.audioin        = rpi.SPI()
+        self.audioout       = rpi.PWM((AUDIO_OUT['PWM0'], AUDIO_OUT['PWM1']))
+
+        self.led.turn_on()
+
         uuidnode = uuid.getnode()
         self.mac = ':'.join(("%012X" % uuidnode)[i:i+2] for i in range(0, 12, 2))
         self.sessionid = None
@@ -98,41 +150,47 @@ class Pedal():
         self.sessionmembers = None
 
         # check initial session membership
-        self.getsession()
-        if self.sessionid:
-            self.getmembers()
+        try:
+            self.getsession(timeout=1)
+            if self.sessionid:
+                self.getmembers()
+            self.online = True
+        except requests.exceptions.ConnectionError:
+            self.online = False
 
         self.compositedata = None
         self.lastcomposite = None
-        self.compositepollthread = Pedal.CompositePollingThread(pedal=self)
-        self.processaudiothread = Pedal.AudioProcessingThread(pedal=self, daemon=True)
+        self.compositepollthread    = Pedal.CompositePollingThread(pedal=self)
+        self.processaudiothread     = Pedal.AudioProcessingThread(pedal=self, daemon=True)
+        self.monitorrpithread       = Pedal.RPiMonitoringThread(pedal=self)
 
-        self.loopdata = b""
+        self.loopdata = []
         self.loopoffset = 0
-        self.monitoring = True
+        self.running = True
+        self.monitoring = False
         self.recording = False
 
         self.loops = []
         self.loopindex = 1
 
+        self.processaudiothread.start()
+        self.monitorrpithread.start()
+
         self.debug = debug
         if debug:
-            self.processaudiothread.start()
             print(self.newsession("rick"))
 
+        self.led.turn_off()
+
     def __del__(self):
-        self.compositepollthread.stop.set()
+        if self.compositepollthread:
+            self.compositepollthread.stop.set()
+        if self.monitorrpithread:
+            self.monitorrpithread.stop.set()
 
-        self.audioin.stop_stream()
-        self.audioin.close()
+        self.running = False
 
-        self.monitorout.stop_stream()
-        self.monitorout.close()
-
-        self.compositeout.stop_stream()
-        self.compositeout.close()
-        
-        self.monitoring = False
+        self.led.turn_off()
 
     def newsession(self, nickname):
         serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}).text
@@ -173,8 +231,8 @@ class Pedal():
             self.compositepollthread.stop.set()
         return serverresponse
 
-    def getsession(self):
-        serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}).text
+    def getsession(self, **kwargs):
+        serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
         if serverresponse != FAILURE_RETURN:
             if serverresponse == NONE_RETURN:
                 self.sessionid = None
@@ -206,29 +264,37 @@ class Pedal():
 
     def startloop(self):
         self.recording = True
-        self.firstrec = True
+        self.firstrecpass = True
+        self.led.turn_on()
 
     def endloop(self):
         self.recording = False
+        self.led.turn_off()
         time.sleep(END_LOOP_SLEEP)
         # synchronize loop to existing composite
         if self.compositedata:
             if len(self.loopdata) < len(self.compositedata):
-                self.loopdata = (self.loopdata + b"\x00" * len(self.compositedata))[:len(self.compositedata)]
+                self.loopdata += [0x00] * (len(self.compositedata) - len(self.loopdata))
             self.loopdata = self.loopdata[self.loopoffset:] + self.loopdata[:self.loopoffset]
-        if self.compositedata:
             self.lastcomposite = self.compositedata
-            self.compositedata = AudioSegment(data=self.compositedata, **PYDUB_ARGS).overlay(AudioSegment(data=self.loop, **PYDUB_ARGS)).raw_data
+            print(self.loopdata[:min(len(self.loopdata), 100)])
+            print(self.compositedata[:min(len(self.compositedata), 100)])
+            print(self.loopdata == self.compositedata)
+            self.compositedata = [(self.loopdata[i] + self.compositedata[i]) >> 1 for i in range(len(self.compositedata))]
+            print(self.compositedata[:min(len(self.compositedata), 100)])
         else:
             self.compositedata = self.loopdata
+
         if self.sessionid:
             loopindex = self.loopindex
             self.loops.append(loopindex)
             self.loopindex += 1
             serverresponse = requests.post(SERVER_URL + "addtrack", data={'mac' : self.mac, 'index' : loopindex}, files={'wavdata' : BytesIO(self.loopdata)}).text
-            self.loopdata = b""
+            self.loopdata = []
             self.getcomposite()
             return serverresponse
+
+        self.loopdata = []
         return SUCCESS_RETURN
 
     def removeloop(self, index=None):

@@ -7,7 +7,15 @@ from enum import Enum
 import ctypes
 
 soc_init = False
-soc_spi_begin = False
+spi_init = False
+pwm_init = False
+
+# duration, in ms, to wait after consequential GPIO value read to account for debouncing
+RPI_DEBOUNCE_DELAY = 1000
+
+# delay to account for button debouncing, though I'm not sure it's a HUGE deal with a footswitch specifically
+def debounce_delay(delay=RPI_DEBOUNCE_DELAY):
+    soc.bcm2835_delay(delay)
 
 class Component:
     def __init__(self):
@@ -65,21 +73,19 @@ class SPI(Component):
     def __init__(self):
         super().__init__()
         self.type = "spi"
-        global soc_spi_begin
-        if not soc_spi_begin:
+        global spi_init
+        if not spi_init:
             self.__spi_bus_init__()
-            soc_spi_begin = True
+            spi_init = True
 
     def __del__(self):
-        global soc_spi_begin
-        if soc_spi_begin:
+        global spi_init
+        if spi_init:
             soc.bcm2835_spi_end()
-            soc_spi_begin = False
+            spi_init = False
         super().__del__()
 
     def __spi_bus_init__(self):
-        # assert soc.bcm2835_spi_begin(), "BCM2835 SPI initialization failed. Are you root?"
-
         soc.bcm2835_spi_begin() 
         
         # SPI bus initialization values taken from ElectroSmash Pedal-Pi Looper C Code: https://www.electrosmash.com/forum/pedal-pi/235-looper-guitar-effect-pedal
@@ -89,9 +95,34 @@ class SPI(Component):
         soc.bcm2835_spi_chipSelect(soc.BCM2835_SPI_CS0)
         soc.bcm2835_spi_setChipSelectPolarity(soc.BCM2835_SPI_CS0, soc.LOW)
 
-    def read_frame(self):
+    def read(self):
         send_buf = ctypes.create_string_buffer(b"\x01\x00\x00")
         recv_buf = ctypes.create_string_buffer(b"\x00\x00\x00")
         soc.bcm2835_spi_transfernb(send_buf, recv_buf, 3)
         return int.from_bytes(recv_buf[2], "big") + ((int.from_bytes(recv_buf[1], "big") & 0x0F) << 8); 
         
+class PWM(Component):
+    def __init__(self, pins):
+        super().__init__()
+        self.pins = pins
+        global pwm_init
+        if not pwm_init:
+            self.__pwm_init__()
+            pwm_init = True
+
+    def __del__(self):
+        super().__del__()
+
+    def __pwm_init__(self):
+        # PWM initialization values also taken from ElectroSmash Looper C Code
+        soc.bcm2835_gpio_fsel(self.pins[0],soc.BCM2835_GPIO_FSEL_ALT5)
+        soc.bcm2835_gpio_fsel(self.pins[1],soc.BCM2835_GPIO_FSEL_ALT0)
+        soc.bcm2835_pwm_set_clock(2)
+        soc.bcm2835_pwm_set_mode(0, 1, 1)
+        soc.bcm2835_pwm_set_range(0, 64)
+        soc.bcm2835_pwm_set_mode(1, 1, 1)
+        soc.bcm2835_pwm_set_range(1, 64)
+
+    def write(self, val):
+        soc.bcm2835_pwm_set_data(1, val & 0x3F)
+        soc.bcm2835_pwm_set_data(0, val >> 6)
