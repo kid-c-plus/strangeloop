@@ -4,5 +4,4 @@ Web-enabled guitar loop pedal designed for remote collaboration between musician
 Currently under development.
 Built using **Flask** and **Numpy**, on an [ElectroSmash Pedal-Pi](https://www.electrosmash.com/pedal-pi) kit.
 
-![Image of Pedal-Pi]
-(pedal-pi.jpg)
+[[https://github.com/kid-c-plus/strangeloop/blob/master/pedal-pi.jpg]]
