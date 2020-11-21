@@ -13,6 +13,9 @@ pwm_init = False
 # duration, in ms, to wait after consequential GPIO value read to account for debouncing
 RPI_DEBOUNCE_DELAY = 1000
 
+# duration, in ms, to wait after initialization to read/write from components
+RPI_INIT_DELAY = 250
+
 # delay to account for button debouncing, though I'm not sure it's a HUGE deal with a footswitch specifically
 def debounce_delay(delay=RPI_DEBOUNCE_DELAY):
     soc.bcm2835_delay(delay)
@@ -51,6 +54,7 @@ class GPIO(Component):
             self.val = 0
         if pud:
             soc.bcm2835_gpio_set_pud(pin, pud.value)
+        soc.bcm2835_delay(RPI_INIT_DELAY)
         
     def read(self):
         return soc.bcm2835_gpio_lev(self.pin) if self.mode == GPIO.FSEL.INPUT else 0
@@ -77,10 +81,11 @@ class SPI(Component):
         if not spi_init:
             self.__spi_bus_init__()
             spi_init = True
+        soc.bcm2835_delay(RPI_INIT_DELAY)
 
     def __del__(self):
-        global spi_init
-        if spi_init:
+        global spi_init, soc_init
+        if spi_init and soc_init:
             soc.bcm2835_spi_end()
             spi_init = False
         super().__del__()
@@ -100,6 +105,12 @@ class SPI(Component):
         recv_buf = ctypes.create_string_buffer(b"\x00\x00\x00")
         soc.bcm2835_spi_transfernb(send_buf, recv_buf, 3)
         return int.from_bytes(recv_buf[2], "big") + ((int.from_bytes(recv_buf[1], "big") & 0x0F) << 8); 
+
+    def read_bytes(self, buflen):
+        retbuf = [0] * buflen
+        for i in range(buflen):
+            retbuf[i] = self.read()
+        return retbuf
         
 class PWM(Component):
     def __init__(self, pins):
@@ -109,6 +120,7 @@ class PWM(Component):
         if not pwm_init:
             self.__pwm_init__()
             pwm_init = True
+        soc.bcm2835_delay(RPI_INIT_DELAY)
 
     def __del__(self):
         super().__del__()
@@ -126,3 +138,7 @@ class PWM(Component):
     def write(self, val):
         soc.bcm2835_pwm_set_data(1, val & 0x3F)
         soc.bcm2835_pwm_set_data(0, val >> 6)
+
+    def write_bytes(self, buf):
+        for val in buf:
+            self.write(val)

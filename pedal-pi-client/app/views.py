@@ -8,8 +8,7 @@ import flask
 @flaskapp.route("/")
 def index():
     return flask.render_template("index.html", pedal=pedal)
-
-# Synchronous POST endpoints
+ Synchronous POST endpoints
 
 @flaskapp.route("/newsession", methods=["POST"])
 def newsession():
@@ -23,7 +22,7 @@ def newsession():
             flask.flash({
                 pedal.NONE_RETURN       : "Pedal already in session %s. Session not created." % pedal.sessionid,
                 pedal.FAILURE_RETURN    : "Server error. Session not created.",
-                pedal.FULL_RETURN       : "Server full. Session not created."}
+                pedal.FULL_RETURN       : "Server full. Session not created."
                 }[pedalresponse])
     else:
         flask.flash("Nickname required.")
@@ -76,6 +75,17 @@ def toggleloop():
     else:
         pedal.startloop()
         return "Recording loop..."
+
+# Asynchronous GET endpoints
+
+# check current session membership
+@flaskapp.route("/getsession")
+def getsession():
+    pedalresponse = pedal.getsession()
+    if pedalresponse == pedal.SUCCESS_RETURN:
+        return "%s %s" % (pedal.sessionid, "owner" if self.owner else "member")
+    else:
+        return pedalresponse
     
 # serverendpoints = ["newsession", "endsession", "leavesession", "getmembers", "startloop", "endloop", "getcomposite"]
 # for endpoint in serverendpoints:
