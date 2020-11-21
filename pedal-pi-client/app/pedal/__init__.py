@@ -148,7 +148,7 @@ class Pedal():
                 if not self.monitors % 100:
                     self.pedal.avgsampleperiod = (passtime - self.uptime) / self.monitors
 
-                debugpass = self.debug and not (self.monitors - 1) % 10000
+                debugpass = self.debug and not (self.monitors - 1) % 50000
                 if debugpass:
                     print("average sample period: %f seconds\nsampling frequency: %f Hz" % (self.pedal.avgsampleperiod, 1 / self.pedal.avgsampleperiod))
 
@@ -194,6 +194,8 @@ class Pedal():
 
                     if self.pedal.recording:
                         if self.pedal.firstrecpass:
+                            if self.pedal.debug:
+                                print("setting first rec pass timestamp: value %f" % passtime)
                             # we need to keep track of where we started recording relative to the composite, so that we can normalize them again once the loop's done
                             self.pedal.loopoffset = compositeindex
                             # time when this loop began
@@ -205,8 +207,11 @@ class Pedal():
                             self.pedal.loopdata = np.append(self.pedal.loopdata, np.zeros((2, int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=float), axis=1)
 
                         # write input data and timestamp relative to the start of the loop
-                        self.pedal.loopdata[0][self.pedal.loopiter] = outputbits
+                        self.pedal.loopdata[0][self.pedal.loopiter] = inputbits
                         self.pedal.loopdata[1][self.pedal.loopiter] = passtime - looprecstart
+                        if debugpass:
+                            print("recorded audio: %d" % inputbits)
+                            print("timestamp: %f" % (passtime - looprecstart))
                         self.pedal.loopiter += 1
 
                     # write to AUX output
@@ -227,7 +232,7 @@ class Pedal():
                 print("monitoring frequency: %f Hz" % (self.monitors / totaltime))
                 print("played loop samples: %f percent" % (self.played * 100 / (self.played + self.dropped)))
             if self.saveoutput:
-                # self.audiofile.close()
+                self.audiofile.close()
 
     # -------------------------------------------------------------------
     # RPiMonitoringThread - Thread superclass to monitor RPi components 
@@ -295,7 +300,7 @@ class Pedal():
     # constructor class
     # args:     debug:  enable debugging log info
 
-    def __init__(self, debug=False):
+    def __init__(self, debug=False, webdebug=False):
         self.pushbutton1    = rpi.GPIO(PUSHBUTTON1, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.pushbutton2    = rpi.GPIO(PUSHBUTTON2, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.toggleswitch   = rpi.GPIO(TOGGLESWITCH, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
@@ -356,7 +361,8 @@ class Pedal():
         self.monitorrpithread.start()
 
         self.debug = debug
-        if debug:
+        self.webdebug = webdebug
+        if webdebug:
             print(self.newsession("rick"))
 
         self.led.turn_off()
@@ -557,8 +563,18 @@ class Pedal():
         # synchronize loop to existing composite
         if self.compositedata is not None:
 
+            print("adding loop to composite")
             # roll array along...x-axis (?) to synchronize it with the composite
             self.loopdata = np.roll(self.loopdata, self.loopoffset, axis=1)
+
+            # update timestamps accordingly
+            # before rolling, timestamp array was [0..timestampmax]
+            # now, it's [timestamp[loopoffset]..timestampmax, 0..timestamp[loopoffset - 1]]
+            # each timestamp needs to be reduced by timestamp[loopoffset] and then modulated by
+            # (timestampmax + avgsampleperiod), or else the max timestamp would also be zero
+            timestampdiff = self.loopdata[1][0]
+            timestampmod = max(self.loopdata[1]) + self.avgsampleperiod
+            self.loopdata[1] = (self.loopdata[1] - timestampdiff) % timestampmod
             
             # save the last composite to enable offline loop deletion (only of the most recent loop)
             self.lastcomposite = self.compositedata

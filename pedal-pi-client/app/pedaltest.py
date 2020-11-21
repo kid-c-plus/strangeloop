@@ -12,6 +12,6 @@ import time
     a.end()
     time.sleep(2) '''
 
-a = pedal.Pedal()
+a = pedal.Pedal(debug=True)
 input("Running pedal...")
 a.end()
