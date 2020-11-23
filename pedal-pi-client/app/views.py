@@ -65,7 +65,9 @@ def leavesession():
         flask.flash("Pedal not in session.")
     return flask.redirect(flask.url_for("/index"))
 
-# Asynchronous POST endpoints
+# -------------------------------
+#   Asynchronous POST endpoints
+# -------------------------------
 
 @flaskapp.route("/toggleloop", methods=["POST"])
 def toggleloop():
@@ -75,18 +77,15 @@ def toggleloop():
     else:
         pedal.startloop()
         return "Recording loop..."
-
-# Asynchronous GET endpoints
+# ------------------------------
+#   Asynchronous GET endpoints
+# ------------------------------
 
 # check current session membership
 @flaskapp.route("/getsession")
 def getsession():
     pedalresponse = pedal.getsession()
     if pedalresponse == pedal.SUCCESS_RETURN:
-        return "%s %s" % (pedal.sessionid, "owner" if self.owner else "member")
+        return "%s %s %s" % (pedal.SUCCESS_RETURN, pedal.sessionid, "owner" if self.owner else "member")
     else:
         return pedalresponse
-    
-# serverendpoints = ["newsession", "endsession", "leavesession", "getmembers", "startloop", "endloop", "getcomposite"]
-# for endpoint in serverendpoints:
-#     flaskapp.add_url_rule("/%s" % endpoint, endpoint, lambda : eval("pedal.%s" % endpoint)(); index(), methods=["POST"])

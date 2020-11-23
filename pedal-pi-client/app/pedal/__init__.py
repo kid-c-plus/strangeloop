@@ -21,6 +21,9 @@ FAILURE_RETURN = "False"
 FULL_RETURN = "Full"
 NONE_RETURN = "None"
 
+# return value if unable to connect to server
+OFFLINE_RETURN = "Offline"
+
 END_LOOP_SLEEP = 0.0
 
 # delays to pause between execution of Raspberry Pi and strangeloop server monitoring threads
@@ -318,14 +321,10 @@ class Pedal():
         self.owner = False
         self.sessionmembers = None
 
-        # check initial session membership
-        try:
-            self.getsession(timeout=1)
-            if self.sessionid:
-                self.getmembers()
-            self.online = True
-        except requests.exceptions.ConnectionError:
-            self.online = False
+            # check initial session membership
+        sessionresp = self.getsession(timeout=1)
+        if self.sessionid:
+            self.getmembers()
 
         # initialize with empty composite array
         self.compositedata = None
@@ -386,99 +385,121 @@ class Pedal():
     # create new session
     # updates pedal object sessionid & owner variables
     # args:     nickname:   self-appointed identifier to the other users in the session (need not be unique)
-    # return:   newly created session identifier on success, or server response on failure
+    # return:   newly created session identifier on success, server response on failure, or OFFLINE_RETURN on failure to connect
 
     def newsession(self, nickname):
-        serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}).text
-        if serverresponse == FAILURE_RETURN:
-            self.getsession()
-        elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
-            self.sessionid = serverresponse 
-            self.owner = True
-            self.compositepollthread.start()
-            return SUCCESS_RETURN
-        return serverresponse
+        try:
+            serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}, **requestargs).text
+            if serverresponse == FAILURE_RETURN:
+                self.getsession()
+            elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
+                self.sessionid = serverresponse 
+                self.owner = True
+                self.compositepollthread.start()
+                return SUCCESS_RETURN
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # end session
     # updates pedal object sessionid & owner variables
-    # return:   server response
+    # return:   server response or OFFLINE_RETURN on failure to connect
 
     def endsession(self):
-        serverresponse = requests.post(SERVER_URL + "endsession", data={'mac' : self.mac}).text
-        if serverresponse == SUCCESS_RETURN:
-            self.sessionid = None
-            self.owner = False
-            self.compositepollthread.stop.set()
-        else:
-            self.getsession()
-        return serverresponse
+        try: 
+            serverresponse = requests.post(SERVER_URL + "endsession", data={'mac' : self.mac}).text
+            if serverresponse == SUCCESS_RETURN:
+                self.sessionid = None
+                self.owner = False
+                self.compositepollthread.stop.set()
+            else:
+                self.getsession()
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
+        
 
     # join session
     # updates pedal object sessionid & owner variables
     # args:     nickname:   self-appointed identifier to the other users in the session (need not be unique)
-    # return:   server response
+    # return:   server response or OFFLINE_RETURN on failure to connect
 
     def joinsession(self, nickname, sessionid):
-        serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
-        if serverresponse == FAILURE_RETURN:
-            self.getsession()
-        elif serverresponse == SUCCESS_RETURN:
-            self.sessionid = sessionid
-            self.owner = False
-            self.compositepollthread.start()
-        return serverresponse
+        try:
+            serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
+            if serverresponse == FAILURE_RETURN:
+                self.getsession()
+            elif serverresponse == SUCCESS_RETURN:
+                self.sessionid = sessionid
+                self.owner = False
+                self.compositepollthread.start()
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # leave session (without ending it)
     # updates pedal object sessionid & owner variables
-    # return:   server response
+    # return:   server response or OFFLINE_RETURN on failure to connect
     
     def leavesession(self):
-        serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
-        if serverresponse == SUCCESS_RETURN:
-            self.sessionid = None
-            self.owner = False
-            self.compositepollthread.stop.set()
-        return serverresponse
+        try:
+            serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
+            if serverresponse == SUCCESS_RETURN:
+                self.sessionid = None
+                self.owner = False
+                self.compositepollthread.stop.set()
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # update pedal object sessionid & owner variables (without actually returning them)
     # args:     **kwargs to pass to request GET call
-    # return:   server response
+    # return:   server response or OFFLINE_RETURN on failure to connect
     
     def getsession(self, **kwargs):
-        serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
-        if serverresponse != FAILURE_RETURN:
-            if serverresponse == NONE_RETURN:
-                self.sessionid = None
-                self.owner = False
-            else:
-                self.sessionid, self.owner = serverresponse.split(":")
-                # convert string description to a boolean
-                self.owner = (self.owner == "owner")
-                return SUCCESS_RETURN
-        return serverresponse 
+        try:
+            serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
+            if serverresponse != FAILURE_RETURN:
+                if serverresponse == NONE_RETURN:
+                    self.sessionid = None
+                    self.owner = False
+                else:
+                    self.sessionid, self.owner = serverresponse.split(":")
+                    # convert string description to a boolean
+                    self.owner = (self.owner == "owner")
+                    return SUCCESS_RETURN
+            return serverresponse 
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # updat pedal object sessionmembers list
-    # return:       server response
+    # return:       server response or OFFLINE_RETURN on failure to connect
 
     def getmembers(self):
-        serverresponse = requests.post(SERVER_URL + "getmembers", data={'mac' : self.mac}).text
-        if serverresponse == FAILURE_RETURN:
-            self.sessionmembers = []
-        else:
-            self.sessionmembers = serverresponse.split(",")
-            return SUCCESS_RETURN
-        return serverresponse
+        try:
+            serverresponse = requests.post(SERVER_URL + "getmembers", data={'mac' : self.mac}).text
+            if serverresponse == FAILURE_RETURN:
+                self.sessionmembers = []
+            else:
+                self.sessionmembers = serverresponse.split(",")
+                return SUCCESS_RETURN
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # requests current composite from server
     # args:     timestamp: timestamp of last update
-    # returns:  true if updated, false otherwise
+    # returns:  true if updated, false otherwise, OFFLINE_RETURN on failure to connect
     
     def getcomposite(self, timestamp=None):
-        compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
-        if compositeresp.text != NONE_RETURN:
-            self.compositedata = compositeresp.content
-            return SUCCESS_RETURN
-        return FAILURE_RETURN
+        try:
+            compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
+            if compositeresp.text != NONE_RETURN:
+                self.compositedata = compositeresp.content
+                return SUCCESS_RETURN
+            return FAILURE_RETURN
+        except requests.exceptions.ConnectionError:
+            return OFFLINE_RETURN
 
     # ---------------------------
     #   Loop Processing Methods
@@ -590,7 +611,10 @@ class Pedal():
             loopindex = self.loopindex
             self.loops.append(loopindex)
             self.loopindex += 1
-            serverresponse = requests.post(SERVER_URL + "addtrack", data={'mac' : self.mac, 'index' : loopindex}, files={'wavdata' : StringIO(json.dumps(loopdata.tolist()))}).text
+            try:
+                serverresponse = requests.post(SERVER_URL + "addtrack", data={'mac' : self.mac, 'index' : loopindex}, files={'wavdata' : StringIO(json.dumps(loopdata.tolist()))}).text
+            except requests.exceptions.ConnectionError:
+                serverresponse = OFFLINE_RETURN
 
             # reset loop array, assuming it'll be roughly the same shape as composite
             # ultimately, though, array shape depends on audio sampling rate
