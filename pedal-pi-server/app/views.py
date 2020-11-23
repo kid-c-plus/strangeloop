@@ -237,16 +237,16 @@ def getmembers():
 # add track to session
 # args:     POST: MAC address of pedal sending track
 #           POST: index of new track
-#           POST: data representing raw track recording
+#           POST: data representing numpy representation of track recording
 # return:   true if track added, false if index already present from given mac, or if pedal unsessioned
 
 @flaskapp.route("/addtrack", methods=["POST"])
 def addtrack():
     mac, index = [flask.request.values.get(key) for key in ('mac', 'index')]
-    wavdata = flask.request.files.get('wavdata').read()
-    if mac and MAC_REGEX.fullmatch(str(mac)) and index and wavdata:
+    npdata = flask.request.files.get('npdata').read()
+    if mac and MAC_REGEX.fullmatch(str(mac)) and index and npdata:
         try:
-            wavdata = json.loads(wavdata)
+            npdata = json.loads(npdata)
         except:
             flaskapp.logger.info("Pedal %s at IP %s submitted invalid raw data" % (mac, flask.request.remote_addr))
             return NONE_RETURN
@@ -259,7 +259,7 @@ def addtrack():
                 else:
                     flaskapp.logger.info("Pedal %s at IP %s added a new track to session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
                 
-                    track = models.Track(pedalmac=mac, index=index, timestamp=dt.now(), wavdata=wavdata, session=pedal.session)
+                    track = models.Track(pedalmac=mac, index=index, timestamp=dt.now(), npdata=npdata, session=pedal.session)
 
                     pedal.session.generatecomposite(fromscratch=False)
                     pedal.session.lastmodified = dt.now()
@@ -273,7 +273,7 @@ def addtrack():
             flaskapp.logger.info("Received add track request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
             return FAILURE_RETURN
     else:
-        flaskapp.logger.info("Received incomplete add track request from IP %s: MAC? %r, index? %r, raw data? %r" % (flask.request.remote_addr, bool(mac), bool(index), bool(wavdata)))
+        flaskapp.logger.info("Received incomplete add track request from IP %s: MAC? %r, index? %r, raw data? %r" % (flask.request.remote_addr, bool(mac), bool(index), bool(npdata)))
         return FAILURE_RETURN
 
 # remove track from session

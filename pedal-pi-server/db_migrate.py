@@ -1,4 +1,6 @@
 #!/usr/local/bin/python3
+import sys
+sys.path.append("../common")
 import imp
 from migrate.versioning import api
 from app import db

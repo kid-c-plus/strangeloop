@@ -1,4 +1,6 @@
 #!/usr/local/bin/python3
+import sys
+sys.path.append("../common")
 from app import flaskapp, db
 
 meta = db.metadata
