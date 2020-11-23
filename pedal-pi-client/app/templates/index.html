@@ -2,7 +2,7 @@
     <head>
         <title>strangeloop</title>
         <link rel="stylesheet/css" src="style.css" />
-        <script src="script.js"></script>
+        <script src="jquery-3.5.1.min.js"></script>
     </head>
     <body>
         <div id="sessioncontrol" class="controlunit">
@@ -13,8 +13,14 @@
             </div>
             {% if pedal.sessionid %}
             <label id="sessionid">{{ pedal.sessionid }}</label>
+                {% if pedal.owner %}
+                <label id="owner">Owner</label>
+                {% else %}
+                <label id="owner">Member</label>
+                {% endif %}
             {% else %}
             <label id="sessionid">No Session</label>
+            <label id="owner">&nbsp;</label>
             {% endif %}
             <form id="newsessionform" action="/newsession" method="post">
                 <label id="newsessionlabel">New Session:</label>
@@ -35,9 +41,9 @@
             </form>
         </div>
         <script>
-            var checkSession = function() {
-                var XHR = new XMLHTTPRequest();
-                XHR.open("get", "http://localhost/getsession
+            var inSession = {% if pedal.sessionid %} true; {% else %} false; {% endif %}
+            var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}
         </script>
+        <script src="script.js"></script>
     </body>
 </html>
