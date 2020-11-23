@@ -9,6 +9,10 @@ import numpy as np
 import re
 import random
 
+import sys
+sys.path.append("../../common")
+from common import *
+
 # -------------
 #   Constants
 # -------------
@@ -17,12 +21,6 @@ import random
 MAX_SESSIONS = 200
 MAX_SESSION_SIZE = 20
 MAX_TRACKS = 30
-
-# return values
-SUCCESS_RETURN = "True"
-FAILURE_RETURN = "False"
-FULL_RETURN = "Full"
-NONE_RETURN = "None"
 
 MAC_REGEX = re.compile("(..:){5}..")
 NICKNAME_SUB_REGEX = re.compile("[,\n]")
