@@ -31,6 +31,9 @@ END_LOOP_SLEEP = 0.0
 RPI_POLL_INTERVAL = 0.1
 COMPOSITE_POLL_INTERVAL = 2
 
+# numpy dtype to define loop & composite array entries
+LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
+
 # add 10 seconds worth of loop time to the array each time its length is met
 ARRAY_SIZE_SEC = 10
 
@@ -128,9 +131,6 @@ class Pedal():
             
             # debugging & diagnostic tools
             self.debug = True
-            if self.debug:
-                self.played = 0
-                self.dropped = 0
             
             self.saveoutput = False
             if self.saveoutput:
@@ -141,7 +141,7 @@ class Pedal():
         def run(self):
             compositeindex = 0
             compositepassstart = 0
-            looprecstart = 0
+            looppassstart = 0
             while self.pedal.running:
                 passtime = time.time()
                 self.monitors += 1
@@ -151,63 +151,77 @@ class Pedal():
                 if not self.monitors % 100:
                     self.pedal.avgsampleperiod = (passtime - self.uptime) / self.monitors
 
-                debugpass = self.debug and not (self.monitors - 1) % 50000
-                if debugpass:
-                    print("average sample period: %f seconds\nsampling frequency: %f Hz" % (self.pedal.avgsampleperiod, 1 / self.pedal.avgsampleperiod))
+                debugpass = self.debug and not (self.monitors - 1) % 1000000
 
                 if self.pedal.monitoring:
+
+                    if self.pedal.recording:
+
+                        if self.pedal.emptycomposite and self.pedal.firstrecpass:
+                            # keep track of start time of first composite recording, so that timestamps can be normalized in relation to them
+                            looppassstart = passtime
+                            self.pedal.firstrecpass = False
+
+                        # loop length is unbounded. add 10 seconds to loop np array
+                        if self.pedal.loopiter >= len(self.pedal.loopdata):
+                            self.pedal.loopdata = np.append(self.pedal.loopdata, np.zeros((int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE))
 
                     # read from AUX input
                     inputbits = self.pedal.audioin.read()
                     outputbits = inputbits
 
-                    if self.pedal.compositedata is not None:
+                    if not self.emptycomposite:
 
-                        # skip all the composite samples that are older than the current time in this composite pass
-                        # because of audio sampling slowdown, the composite gets played back slower than it was recorded, causing pitch shifting and a bad sound overall
-                        # I'd rather skip samples than have that keep happening
-                        
-                        while self.pedal.compositedata is not None and compositeindex < self.pedal.compositedata.shape[1] and self.pedal.compositedata[1][compositeindex] < passtime - compositepassstart - (COMP_SAMPLE_WINDOW * self.pedal.avgsampleperiod):
-                            if debugpass:
-                                print("sample skipped: sample timestamp %f ms, current timestamp %f ms, acceptable window %f ms" % (self.pedal.compositedata[1][compositeindex] * 1000, (passtime - compositepassstart) * 1000, (COMP_SAMPLE_WINDOW * self.pedal.avgsampleperiod)))
-                            compositeindex += 1
-                            self.dropped += 1
-                        
-                        # of course, I have to watch out not to go in the other direction, and play this stuff back too fast!
-                        # if the next sample is (1 + COMP_SAMPLE_WINDOW) farther ahead than the average sample period, then I'll wait for the next one to hit it
-                        # the window is to reduce the chance of waiting to play a sample one time and then missing it the next
-                        # I have a similar window guard on old samples
+                        # playback timestamp relative to the start of the composite
+                        compositetimestamp = passtime - compositepassstart
 
-                        if compositeindex < self.pedal.compositedata.shape[1] and self.pedal.compositedata[1][compositeindex] < passtime - compositepassstart + (1 + COMP_SAMPLE_WINDOW * self.pedal.avgsampleperiod):
-                            if debugpass:
-                                print("playing loop sample!")
-                            compositebits = self.pedal.compositedata[0][compositeindex]
-                            outputbits = inputbits + compositebits - (inputbits + compositebits) // 2
-                            compositeindex += 1
-                            self.played += 1
-                        elif debugpass:
-                            print("sample held for next cycle: sample timestamp %f ms, current timestamp %f ms, acceptable window %f ms, composite index %d" % (self.pedal.compositedata[1][compositeindex] * 1000, (passtime - compositepassstart) * 1000, (COMP_SAMPLE_WINDOW * self.pedal.avgsampleperiod), compositeindex))
+                        # find the proper place in the composite, where the current timestamp fits
+                        while not (compositeindex == 0 or compositeindex == len(self.pedal.compositedata) - 1 or (self.pedal.compositedata[compositeindex] <= compositetimestamp and compositetimestamp <= self.pedal.compositedata[compositeindex + 1]))
+                            compositeindex += 1 if compositetimestamp > self.pedal.compositedata[compositeindex + 1] else -1 
+
+                        # play the closer of the two samples adjoining the current timestamp (or the index sample if the index is at the end of the array)
+                        bestcompositeindex = compositeindex if (compositeindex == len(self.pedal.compositedata) - 1 or compositetimestamp - self.pedal.compositedata[compositeindex]['timestamp'] <= self.pedal.compositedata[compositeindex + 1] - compositetimestamp) else compositeindex + 1
+                        compositebits = self.pedal.compositedata[bestcompositeindex]
+
+                        # merge input and output bits
+                        outputbits = inputbits + compositebits - (inputbits + compositebits) // 2
+
+                        if self.pedal.recording:
+                            # add merged input and composite, and average timestamps of composite recording and current input
+                            self.pedal.compositedata[bestcompositeindex] = (out
 
                         # return to the start of the composite, and note the time that this playback began
-                        if compositeindex >= self.pedal.compositedata.shape[1]:
+                        if compositeindex >= len(self.pedal.compositedata) - 1:
                             compositeindex = 0
                             compositepassstart = passtime
                     else:
                         compositeindex = 0
 
                     if self.pedal.recording:
-                        if self.pedal.firstrecpass:
-                            if self.pedal.debug:
-                                print("setting first rec pass timestamp: value %f" % passtime)
-                            # we need to keep track of where we started recording relative to the composite, so that we can normalize them again once the loop's done
-                            self.pedal.loopoffset = compositeindex
-                            # time when this loop began
-                            looprecstart = passtime
-                            self.pedal.firstrecpass = False
+                        
+                        if self.pedal.emptycomposite and self.pedal.firstrecpass:
+                                # keep track of start time of first composite recording, so that timestamps can be normalized in relation to them
+                                looppassstart = passtime
+                                self.pedal.firstrecpass = False
 
                         # loop length is unbounded. add 10 seconds to loop np array
-                        if self.pedal.loopiter >= self.pedal.loopdata.shape[1]:
-                            self.pedal.loopdata = np.append(self.pedal.loopdata, np.zeros((2, int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=float), axis=1)
+                        if self.pedal.loopiter >= len(self.pedal.loopdata):
+                            self.pedal.loopdata = np.append(self.pedal.loopdata, np.zeros((int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE))
+
+                        if self.pedal.emptycomposite:
+
+                            # composite is also unbound on first loop
+                            if self.pedal.loopiter >= len(self.pedal.compositedata):
+                                self.pedal.compositedata = np.append(self.pedal.compositedata, np.zeros((int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE))
+
+                            self.pedal.compositedata[self.pedal.loopiter] = (inputbits, passtime - looppassstart)
+
+                        else:
+                            # find the closest entry in the composite index to merge loop input signal with
+                            inputsaveindex = max(0, compositeindex - 1)
+                            while not (inputsaveindex == 0 or inputsaveindex == len(self.pedal.compositedata) - 1 or (self.pedal.compositedata[inputsaveindex - 1] <= compositetimestamp and 
+
+                            
 
                         # write input data and timestamp relative to the start of the loop
                         self.pedal.loopdata[0][self.pedal.loopiter] = inputbits
@@ -233,7 +247,6 @@ class Pedal():
             if self.debug:
                 totaltime = time.time() - self.uptime
                 print("monitoring frequency: %f Hz" % (self.monitors / totaltime))
-                print("played loop samples: %f percent" % (self.played * 100 / (self.played + self.dropped)))
             if self.saveoutput:
                 self.audiofile.close()
 
@@ -329,6 +342,9 @@ class Pedal():
         # initialize with empty composite array
         self.compositedata = None
         self.lastcomposite = None
+
+        # track whether composite has been recorded to before or not
+        self.emptycomposite = True
 
         # initialize process threads
         self.compositepollthread    = Pedal.CompositePollingThread(pedal=self)
@@ -509,7 +525,8 @@ class Pedal():
 
     def startloop(self):
         self.recording = True
-        self.firstrecpass = True
+        if self.emptycomposite:
+            self.firstrecpass = True
         self.led.turn_on()
 
     # stop recording loop, add loop data to composite, and send
@@ -581,32 +598,16 @@ class Pedal():
         # remove allocated but unused array space
         self.loopdata = self.loopdata[:, :self.loopiter]
 
-        # synchronize loop to existing composite
-        if self.compositedata is not None:
-
-            print("adding loop to composite")
-            # roll array along...x-axis (?) to synchronize it with the composite
-            self.loopdata = np.roll(self.loopdata, self.loopoffset, axis=1)
-
-            # update timestamps accordingly
-            # before rolling, timestamp array was [0..timestampmax]
-            # now, it's [timestamp[loopoffset]..timestampmax, 0..timestamp[loopoffset - 1]]
-            # each timestamp needs to be reduced by timestamp[loopoffset] and then modulated by
-            # (timestampmax + avgsampleperiod), or else the max timestamp would also be zero
-            timestampdiff = self.loopdata[1][0]
-            timestampmod = max(self.loopdata[1]) + self.avgsampleperiod
-            self.loopdata[1] = (self.loopdata[1] - timestampdiff) % timestampmod
-            
-            # save the last composite to enable offline loop deletion (only of the most recent loop)
-            self.lastcomposite = self.compositedata
-            self.compositedata = mergeloops(self.loopdata, self.compositedata)
-            
-        else:
-            self.compositedata = self.loopdata
+        # if composite is being written to for the first time, truncate excess allocated space
+        if self.emptycomposite:
+            self.compositedata = self.compositedata[:, self.loopiter]
+            self.emptycomposite = True
 
         # if pedal in online session, upload json-encoded loop numpy array
         if self.sessionid:
             
+            # sort loop array by timecodes before uploading
+
             # provide device-unique loop index
             loopindex = self.loopindex
             self.loops.append(loopindex)
@@ -648,4 +649,6 @@ class Pedal():
         else:
             # can only erase most recent loop if using without web session
             self.compositedata = self.lastcomposite
+            if self.compositedata is None:
+                    self.emptycomposite = True
             return SUCCESS_RETURN
