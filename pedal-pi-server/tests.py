@@ -118,7 +118,7 @@ class TestCase(unittest.TestCase):
         nicknames.pop(2)
         assert req.post(BASEURL + "getmembers", data=pedals[0]).text == ",".join([name.replace(",", "") for name in nicknames])
 
-    def testaddtracks(self):
+    def testaddloops(self):
         nicknames = ["rick", "ash", "matt"]
         sess = req.post(BASEURL + "newsession", data=genpedal(0, nicknames[0])).text
         pedals = []
@@ -138,7 +138,7 @@ class TestCase(unittest.TestCase):
                 refloop = refloop.overlay(wav)
             else:
                 refloop = wav
-            assert req.post(BASEURL + "addtrack", data=pedals[i], files={'wavdata' : BytesIO(wavdata)}).text == views.SUCCESS_RETURN
+            assert req.post(BASEURL + "addloop", data=pedals[i], files={'wavdata' : BytesIO(wavdata)}).text == views.SUCCESS_RETURN
 
         resploop = req.post(BASEURL + "getcomposite", data=pedals[0]).content
         '''
@@ -151,17 +151,17 @@ class TestCase(unittest.TestCase):
         '''
         assert resploop == refloop.raw_data
 
-    def testmanytracks(self):
+    def testmanyloops(self):
         pedal = genpedal()
         req.post(BASEURL + "newsession", data=pedal)
         wav = AudioSegment.from_wav("test_tones/0.wav").raw_data
         for i in range(30):
             pedal['index'] = i
-            req.post(BASEURL + "addtrack", data=pedal, files={'wavdata' :  BytesIO(wav)})
+            req.post(BASEURL + "addloop", data=pedal, files={'wavdata' :  BytesIO(wav)})
         pedal['index'] = 30
-        assert req.post(BASEURL + "addtrack", data=pedal, files={'wavdata' :  BytesIO(wav)}).text == views.FULL_RETURN
+        assert req.post(BASEURL + "addloop", data=pedal, files={'wavdata' :  BytesIO(wav)}).text == views.FULL_RETURN
 
-    def testremovetracks(self):
+    def testremoveloops(self):
         nicknames = ["rick", "ash", "matt"]
         sess = req.post(BASEURL + "newsession", data=genpedal(0, nicknames[0])).text
         pedals = []
@@ -182,13 +182,13 @@ class TestCase(unittest.TestCase):
                     refloop = refloop.overlay(wav)
                 else:
                     refloop = wav
-            assert req.post(BASEURL + "addtrack", data=pedals[i], files={'wavdata' : BytesIO(wavdata)}).text == views.SUCCESS_RETURN
+            assert req.post(BASEURL + "addloop", data=pedals[i], files={'wavdata' : BytesIO(wavdata)}).text == views.SUCCESS_RETURN
 
         assert req.post(BASEURL + "getcomposite", data=pedals[0]).content != refloop.raw_data
 
-        assert req.post(BASEURL + "removetrack", data={'mac' : pedals[0]['mac'], 'index' : 2}).text == views.FAILURE_RETURN
-        assert req.post(BASEURL + "removetrack", data={'mac' : pedals[1]['mac'], 'index' : 2}).text == views.FAILURE_RETURN
-        assert req.post(BASEURL + "removetrack", data={'mac' : pedals[2]['mac'], 'index' : 2}).text == views.SUCCESS_RETURN
+        assert req.post(BASEURL + "removeloop", data={'mac' : pedals[0]['mac'], 'index' : 2}).text == views.FAILURE_RETURN
+        assert req.post(BASEURL + "removeloop", data={'mac' : pedals[1]['mac'], 'index' : 2}).text == views.FAILURE_RETURN
+        assert req.post(BASEURL + "removeloop", data={'mac' : pedals[2]['mac'], 'index' : 2}).text == views.SUCCESS_RETURN
 
         resploop = req.post(BASEURL + "getcomposite", data=pedals[0]).content
 
