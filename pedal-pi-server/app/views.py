@@ -20,7 +20,7 @@ from common import *
 # MAX_SESSIONS = 52 ** 4
 MAX_SESSIONS = 200
 MAX_SESSION_SIZE = 20
-MAX_TRACKS = 30
+MAX_LOOPS = 30
 
 MAC_REGEX = re.compile("(..:){5}..")
 NICKNAME_SUB_REGEX = re.compile("[,\n]")
@@ -232,34 +232,50 @@ def getmembers():
             return FAILURE_RETURN
     else:
         flaskapp.logger.info("Received membership list request without MAC address from IP %s" % flask.request.remote_addr)
+        return FAILURE_RETURNn
+
+# get list of loop ids previously added by this pedal, so that it can continue providing device-unique ids
+# args:     POST: MAC addres of requesting pedal
+# return:   list of loop ids from this pedal in session, or None if pedal unsessioned
+
+@flaskapp.route("/getloopids", methods=["POST"])
+def getloopids():
+    mac = flask.request.values.get('mac')
+    if mac and MAC_REGEX.fullmatch(str(mac)):
+        mac = str(mac)
+        pedal = models.Pedal.query.get(mac)
+        if pedal and pedal.session:
+            flaskapp.logger.info("Pedal %s at IP %s has requested loop list for session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
+            return ",".join([loop.index for loop in models.Session.query.get(pedal.sessionid).loops])
+        else:
+            flaskapp.logger.info("Received loop list request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
+            return FAILURE_RETURN
+    else:
+        flaskapp.logger.info("Received loop list request without MAC address from IP %s" % flask.request.remote_addr)
         return FAILURE_RETURN
 
-# add track to session
-# args:     POST: MAC address of pedal sending track
-#           POST: index of new track
-#           POST: data representing numpy representation of track recording
-# return:   true if track added, false if index already present from given mac, or if pedal unsessioned
 
-@flaskapp.route("/addtrack", methods=["POST"])
-def addtrack():
+# add loop to session
+# args:     POST: MAC address of pedal sending loop 
+#           POST: index of new loop 
+#           POST: data representing numpy representation of loop recording
+# return:   true if loop added, false if index already present from given mac, or if pedal unsessioned
+
+@flaskapp.route("/addloop", methods=["POST"])
+def addloop():
     mac, index = [flask.request.values.get(key) for key in ('mac', 'index')]
     npdata = flask.request.files.get('npdata').read()
     if mac and MAC_REGEX.fullmatch(str(mac)) and index and npdata:
-        try:
-            npdata = json.loads(npdata)
-        except:
-            flaskapp.logger.info("Pedal %s at IP %s submitted invalid raw data" % (mac, flask.request.remote_addr))
-            return NONE_RETURN
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
-            if len(pedal.session.tracks) < MAX_TRACKS:
-                if models.Track.query.get((mac, index)):
-                    flaskapp.logger.info("Pedal %s at IP %s attempted to add track to session %s at already-present index %s" % (mac, flask.request.remote_addr, pedal.sessionid, index))
+            if len(pedal.session.loops) < MAX_LOOPS:
+                if models.Loop.query.get((mac, index)):
+                    flaskapp.logger.info("Pedal %s at IP %s attempted to add loop to session %s at already-present index %s" % (mac, flask.request.remote_addr, pedal.sessionid, index))
                     return FAILURE_RETURN
                 else:
-                    flaskapp.logger.info("Pedal %s at IP %s added a new track to session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
+                    flaskapp.logger.info("Pedal %s at IP %s added a new loop to session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
                 
-                    track = models.Track(pedalmac=mac, index=index, timestamp=dt.now(), npdata=npdata, session=pedal.session)
+                    loop = models.Loop(pedalmac=mac, index=index, timestamp=dt.now(), npdata=npdata, session=pedal.session)
 
                     pedal.session.generatecomposite(fromscratch=False)
                     pedal.session.lastmodified = dt.now()
@@ -267,32 +283,32 @@ def addtrack():
                     db.session.commit()
                     return SUCCESS_RETURN
             else:
-                flaskapp.logger.info("Pedal %s at IP %s attempted to add track to full session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
+                flaskapp.logger.info("Pedal %s at IP %s attempted to add loop to full session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
                 return FULL_RETURN
         else:
-            flaskapp.logger.info("Received add track request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
+            flaskapp.logger.info("Received add loop request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
             return FAILURE_RETURN
     else:
-        flaskapp.logger.info("Received incomplete add track request from IP %s: MAC? %r, index? %r, raw data? %r" % (flask.request.remote_addr, bool(mac), bool(index), bool(npdata)))
+        flaskapp.logger.info("Received incomplete add loop request from IP %s: MAC? %r, index? %r, raw data? %r" % (flask.request.remote_addr, bool(mac), bool(index), bool(npdata)))
         return FAILURE_RETURN
 
-# remove track from session
-# args:     POST: MAC address of pedal removing track
-#           POST: index of track to remove
-# return:   true if track removed, false if no track at index + mac of pedal or if pedal unsessioned
+# remove loop from session
+# args:     POST: MAC address of pedal removing loop 
+#           POST: index of loop to remove
+# return:   true if loop removed, false if no loop at index + mac of pedal or if pedal unsessioned
 
-@flaskapp.route("/removetrack", methods=["POST"])
-def removetrack():
+@flaskapp.route("/removeloop", methods=["POST"])
+def removeloop():
     mac, index = [flask.request.values.get(key) for key in ('mac', 'index')]
     if mac and MAC_REGEX.fullmatch(str(mac)) and index:
         mac, index = [str(val) for val in (mac, index)]
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
-            track = models.Track.query.get((mac, index))
-            if track:
-                db.session.delete(track)
+            loop = models.Loop.query.get((mac, index))
+            if loop:
+                db.session.delete(loop)
 
-                flaskapp.logger.info("Pedal %s at IP %s removed track %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
+                flaskapp.logger.info("Pedal %s at IP %s removed loop %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
 
                 db.session.commit()
 
@@ -303,13 +319,13 @@ def removetrack():
                 
                 return SUCCESS_RETURN
             else:
-                flaskapp.logger.info("Pedal %s at IP %s attempted to remove nonexistent track %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
+                flaskapp.logger.info("Pedal %s at IP %s attempted to remove nonexistent loop %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
                 return FAILURE_RETURN
         else:
-            flaskapp.logger.info("Received remove track request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
+            flaskapp.logger.info("Received remove loop request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
             return FAILURE_RETURN
     else:
-        flaskapp.logger.info("Received incomplete remove track request from IP %s: MAC? %r, index? %r" % (flask.request.remote_addr, bool(mac), bool(index)))
+        flaskapp.logger.info("Received incomplete remove loop request from IP %s: MAC? %r, index? %r" % (flask.request.remote_addr, bool(mac), bool(index)))
         return FAILURE_RETURN
 
 # get current composite
