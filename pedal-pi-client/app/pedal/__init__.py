@@ -3,7 +3,7 @@ import json
 import requests
 import time
 import atexit
-from threading import Thread, Event, RLock
+from threading import Thread, Event, Lock
 from datetime import datetime
 from io import BytesIO
 import numpy as np
@@ -417,8 +417,8 @@ class Pedal():
         self.recording = False
 
         # mutexes to protect writing to loop & composite array between threads
-        self.looplock = RLock()
-        self.compositelock = RLock()
+        self.looplock = Lock()
+        self.compositelock = Lock()
 
         # when online, the user can delete loops by index
         # thus, it's not enough merely to track the number of loops
