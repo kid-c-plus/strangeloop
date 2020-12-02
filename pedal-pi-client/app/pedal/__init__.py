@@ -8,6 +8,7 @@ from datetime import datetime
 from io import BytesIO
 import numpy as np
 from . import rpi
+import logging
 
 # -------------
 #   Constants
@@ -66,6 +67,28 @@ TOGGLESWITCH_ON     = 1
 FOOTSWITCH_MON      = 0
 FOOTSWITCH_BYPASS   = 1
 
+# defaults for all the keyword args that can be passed to the Pedal constructor
+# germane to both the Pedal and the various thread subclasses, but all accessed through the parent Pedal object
+PEDAL_KW_DEFAULTS = {
+
+    # Pedal object variables
+    'debug'     : False,
+    'webdebug'  : False,
+
+    # AudioProcessingThread object variables
+
+    # load input from file instead of reading from AUX input
+    'audioloadinput'    : False,
+    'audioinfile'       : "/opt/strangeloop/pedal-pi-client/app/pedal/debug.in",
+
+    # save output
+    'audiosaveoutput'   : False,
+    'audiooutfile'      : "/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.out" % datetime.now.strftime("%Y-%m-%d-%H:%M:%S"),
+
+    # write output to AUX output
+    'audioplayoutput'   : True
+}
+
 # -----------
 #   Classes
 # -----------
@@ -93,15 +116,24 @@ class Pedal():
             self.pedal = pedal
             self.timestamp = datetime.now().timestamp()
 
+            logging.debug("Initialized composite polling thread")
+
         # main thread execution loop
 
         def run(self):
+
+            logging.debug("Started composite polling thread")
+
             while self.pedal.running: 
                 time.sleep(COMPOSITE_POLL_INTERVAL)
 
                 # timestamp to determine whether any new data needs to be downloaded
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
                     self.timestamp = datetime.now().timestamp()
+
+                    logging.debug("Downloaded new composite at %s" % self.timestamp.strftime("%Y-%m-%d-%H:%M:%S"))
+
+            logging.debug("Ended composite polling thread")
 
 
     # --------------------------------------------------------------------
@@ -125,26 +157,45 @@ class Pedal():
 
             # used for calculating average sample period
             self.uptime = time.time()
-            
+
             # used for diagnostics
             self.monitors = 0
-            
-            # debugging & diagnostic tools
-            self.debug = True
-            
-            self.saveoutput = False
-            if self.saveoutput:
-                self.audiofile = open("/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.raw" % datetime.now().timestamp(), mode="w")
-            
+
+            # load input from file
+            if pedal.audioloadinput:
+                self.audioinfileobj = open(pedal.audioinfile, mode="r")
+
+            # save output to file
+            if pedal.audiosaveoutput:
+                self.audiooutfileobj = open(pedal.audiooutfile, mode="w")
+
+            logging.debug("Initialized audio processing thread")
+
         # main thread execution loop
 
         def run(self):
+
+            logging.debug("Started audio processing thread")
 
             # simple helper method to append whitespace to array
             # return: new array with whitespace appended
             def extendarray(arr):
                 return np.append(arr, np.zeros((int(ARRAY_SIZE_SEC / self.pedal.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE))
-            
+
+            # simple helper to read a single number out of a file of space-separated numbers
+            def readnum(fileobj):
+                retnum = ""
+                while True:
+                    char = fileobj.read(1)
+                    if not char or char == "" or char == " ":
+                        break
+                    retnum += char
+                try:
+                    return int(retnum)
+                else:
+                    logging.error("AudioProcessingThread: invalid character string %d in input file %d" % (retnum, self.pedal.audioinfile))
+                    return 0
+
             # initialize values for composite iteration & timestamp calculation
             # compositepassstart: timestamp when the composite loop was last started or restarted
             # looprecstart: timestamp of the beginning of loop recording
@@ -166,12 +217,18 @@ class Pedal():
                     self.pedal.avgsampleperiod = (passtime - self.uptime) / self.monitors
 
                 # determines whether some debug information is printed
-                debugpass = self.debug and not (self.monitors - 1) % 100000
+                debugpass = not (self.monitors - 1) % 100000
 
                 if self.pedal.monitoring:
 
+                    # read from input file (for unit testing)
+                    if self.pedal.audioloadinput:
+                        inputbits = readnum(self.audioinfileobj)
+
                     # read from AUX input
-                    inputbits = self.pedal.audioin.read()
+                    else:
+                        inputbits = self.pedal.audioin.read()
+
                     outputbits = inputbits
 
                     # no composite loop data to play
@@ -205,12 +262,9 @@ class Pedal():
                                 self.pedal.loopiter += 1
 
                                 if debugpass:
-                                    print("recorded audio to first loop: %d" % inputbits)
-                                    print("timestamp: %f" % looprectimestamp)
-                                    print("timestamp in composite: %f" % self.pedal.compositedata[self.pedal.loopiter]['timestamp'])
-                                    print()
+                                    logging.debug("AudioProcessingThread: Recorded audio to first loop: %d" % inputbits)
                         else:
-                            
+
                             # reset first loop record variable
                             looprecstart = 0
 
@@ -271,9 +325,7 @@ class Pedal():
                                     lastcompositeindex = compositeindex
 
                                     if debugpass:
-                                        print("recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
-                                        print("timestamp: %f" % (compositetimestamp))
-                                        print()
+                                        logging.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
 
                                     # loop length is unbounded. add 10 seconds to loop np array
                                     if self.pedal.loopiter >= len(self.pedal.loopdata):
@@ -285,22 +337,29 @@ class Pedal():
                                     self.pedal.loopiter += 1
 
                     # write to AUX output
-                    self.pedal.audioout.write(outputbits)
+                    if self.pedal.audioplayoutput:
+                        self.pedal.audioout.write(outputbits)
 
-                    if self.saveoutput:
+                    # save to output file
+                    if self.pedal.audiosaveoutput:
                         try:
-                            self.audiofile.write("%d " % outputbits)
+                            self.audiooutfile.write("%d " % outputbits)
                         except:
                             pass
+
+            logging.debug("Ended audio processing thread")
 
         # process end functions, mostly debugging
 
         def end(self):
-            if self.debug:
-                totaltime = time.time() - self.uptime
-                print("monitoring frequency: %f Hz" % (self.monitors / totaltime))
-            if self.saveoutput:
-                self.audiofile.close()
+
+            totaltime = time.time() - self.uptime
+            logging.info("AudioProcessingThread: monitoring frequency: %f Hz" % (self.monitors / totaltime))
+
+            if self.pedal.audiosaveoutput:
+                self.audiooutfile.close()
+
+            logging.debug("Deinitialized audio processing thread")
 
     # -------------------------------------------------------------------
     # RPiMonitoringThread - Thread superclass to monitor RPi components 
@@ -316,9 +375,14 @@ class Pedal():
             Thread.__init__(self)
             self.pedal = pedal
 
+            logging.debug("Initialized RPi Polling Thread")
+
         # main thread execution loop
 
         def run(self):
+
+            logging.debug("Started RPi Polling Thread")
+            
             while self.pedal.running:
                 time.sleep(RPI_POLL_INTERVAL)
 
@@ -364,11 +428,21 @@ class Pedal():
                 if debounce_delay:
                     rpi.debounce_delay()
 
+            logging.debug("Ended RPi Polling Thread")
 
-    # constructor class
-    # args:     debug:  enable debugging log info
+    # Pedal constructor class
+    # args:     **kwargs: override PEDAL_KW_DEFAULTS above
 
-    def __init__(self, debug=False, webdebug=False):
+    def __init__(self, **kwargs):
+
+        logging.info("Initializing Pedal object")
+
+        # set object properties
+        self.__dict__.update(PEDAL_KW_DEFAULTS)
+
+        # only override the keyword arguments that appear in the PEDAL_KW_DEFAULTS dict
+        self.__dict__.update((k, v) for k, v in kwargs.values() if k in list(PEDAL_KW_DEFAULTS.keys()))
+
         self.pushbutton1    = rpi.GPIO(PUSHBUTTON1, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.pushbutton2    = rpi.GPIO(PUSHBUTTON2, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.toggleswitch   = rpi.GPIO(TOGGLESWITCH, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
@@ -430,17 +504,20 @@ class Pedal():
         self.processaudiothread.start()
         self.monitorrpithread.start()
 
-        self.debug = debug
-        self.webdebug = webdebug
-        if webdebug:
+        if self.webdebug:
             print(self.newsession("rick"))
 
         self.led.turn_off()
+
+        logging.info("Initialized Pedal object")
 
     # destructor method
     # set end flag so threads can exit gracefully
 
     def end(self):
+
+        logging.info("Deinitializing Pedal object")
+
         self.running = False
 
         # call process audio destructor
@@ -448,6 +525,8 @@ class Pedal():
             self.processaudiothread.end()
 
         self.led.turn_off()
+
+        logging.info("Deinitialized Pedal object")
 
     # ------------------------------
     #   Server Interaction Methods
@@ -460,6 +539,8 @@ class Pedal():
 
     def newsession(self, nickname):
         try:
+            logging.info("Creating new session for %s" % nickname)
+
             serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}, **requestargs).text
             if serverresponse == FAILURE_RETURN:
                 self.getsession()
@@ -488,7 +569,7 @@ class Pedal():
             return serverresponse
         except requests.exceptions.ConnectionError:
             return OFFLINE_RETURN
-        
+
 
     # join session
     # updates pedal object sessionid & owner variables
@@ -511,7 +592,7 @@ class Pedal():
     # leave session (without ending it)
     # updates pedal object sessionid & owner variables
     # return:   server response or OFFLINE_RETURN on failure to connect
-    
+
     def leavesession(self):
         try:
             serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
@@ -526,7 +607,7 @@ class Pedal():
     # update pedal object sessionid & owner variables (without actually returning them)
     # args:     **kwargs to pass to request GET call
     # return:   server response or OFFLINE_RETURN on failure to connect
-    
+
     def getsession(self, **kwargs):
         try:
             serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
@@ -561,7 +642,7 @@ class Pedal():
     # requests current composite from server 
     # args:     timestamp: timestamp of last update
     # returns:  true if updated, false otherwise, OFFLINE_RETURN on failure to connect
-    
+
     def getcomposite(self, timestamp=None):
         try:
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
@@ -621,7 +702,7 @@ class Pedal():
 
             # if pedal in online session, upload json-encoded loop numpy array
             if self.sessionid:
-                
+
                 # sort loop array by timecodes before uploading
                 self.loopdata.sort(order="timecode")
 
@@ -638,7 +719,7 @@ class Pedal():
                 # ultimately, though, array shape depends on audio sampling rate
                 self.loopdata = np.zeros_like(self.compositedata)
                 self.loopiter = 0
-                
+
                 # apply new composite
                 self.getcomposite()
                 return serverresponse
@@ -674,6 +755,6 @@ class Pedal():
                     self.compositedata = np.copy(self.lastcomposite)
                 else:
                     self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
-                    
+
                 self.emptycomposite = self.emptylastcomposite
                 return SUCCESS_RETURN
