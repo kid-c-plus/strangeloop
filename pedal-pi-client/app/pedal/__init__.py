@@ -280,26 +280,17 @@ class Pedal():
                                 compositepassstart = passtime
 
                             # playback timestamp relative to the start of the composite
-                            compositetimestamp = passtime - compositepassstart
+                            inputtimestamp = passtime - compositepassstart
 
                             # search in the composite for the closest timestamps higher and lower than the current timestamp (relative to composite start time)
                             # could use binary search, but in practice this should be within a small number of array indices away from the current composite index
                             # each time, as long as sampling rate stays constant. so, though the worst-case big-o of this is worse, it'll perform better on average
 
-                            # while not (compositeindex >= len(self.pedal.compositedata) - 1 or (self.pedal.compositedata[compositeindex]['timestamp'] <= compositetimestamp and compositetimestamp <= self.pedal.compositedata[compositeindex + 1]['timestamp'])):
-                                # compositeindex += 1 if compositetimestamp > self.pedal.compositedata[compositeindex + 1]['timestamp'] else -1
-
-                                # if the current composite timestamp is, for some unpredictable reason, less than the first timestamp in the compositedata array, 
-                                # which will always be zero in well-formed compositedata arrays, then just play the first signal and be done with it
-                                # if compositeindex == -1:
-                                #         compositeindex = 0
-                                #         break
-
-                            while compositeindex < len(self.pedal.compositedata) - 1 and compositetimestamp > self.pedal.compositedata[compositeindex + 1]['timestamp']:
+                            while compositeindex < len(self.pedal.compositedata) - 1 and inputtimestamp > self.pedal.compositedata[compositeindex + 1]['timestamp']:
                                 compositeindex += 1 
 
                             # play & write to the closer of the two samples adjoining the current timestamp (or the index sample if the index is at the end of the array)
-                            compositeindex = compositeindex if (compositeindex == len(self.pedal.compositedata) - 1 or compositetimestamp - self.pedal.compositedata[compositeindex]['timestamp'] <= self.pedal.compositedata[compositeindex + 1]['timestamp'] - compositetimestamp) else compositeindex + 1
+                            compositeindex = compositeindex if (compositeindex == len(self.pedal.compositedata) - 1 or inputtimestamp - self.pedal.compositedata[compositeindex]['timestamp'] <= self.pedal.compositedata[compositeindex + 1]['timestamp'] - inputtimestamp) else compositeindex + 1
 
                             compositebits = self.pedal.compositedata[compositeindex]['value']
 
@@ -315,12 +306,12 @@ class Pedal():
                                     # which will result in some pretty square sonic waves, but it's better than having composite array
                                     # indices that aren't written to by subsequent loops
                                     if lastcompositeindex <= compositeindex:
-                                        self.pedal.compositedata[lastcompositeindex + 1 : compositeindex + 1] = (outputbits, (compositetimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
+                                        self.pedal.compositedata[lastcompositeindex + 1 : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
                                     # if the composite index looped around since last pass
                                     # even if the compositedata array has changed size since the last pass, and lastcompositeindex is larger
                                     # than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
                                     else:
-                                        self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (compositetimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
+                                        self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
 
                                     lastcompositeindex = compositeindex
 
@@ -333,7 +324,7 @@ class Pedal():
 
                                     # save input to loopdata array to upload to server
                                     # store timestamp relative to composite playback head, and sort array by timestamps before submitting
-                                    self.pedal.loopdata[self.pedal.loopiter] = (inputbits, compositetimestamp)
+                                    self.pedal.loopdata[self.pedal.loopiter] = (inputbits, inputtimestamp)
                                     self.pedal.loopiter += 1
 
                     # write to AUX output
@@ -539,18 +530,26 @@ class Pedal():
 
     def newsession(self, nickname):
         try:
-            logging.info("Creating new session for %s" % nickname)
+            logging.info("Creating new session")
 
             serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}, **requestargs).text
+            
+            logging.info("New session creation returned %s" % serverresponse)
+
             if serverresponse == FAILURE_RETURN:
                 self.getsession()
+
             elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
                 self.sessionid = serverresponse 
                 self.owner = True
                 self.compositepollthread.start()
                 return SUCCESS_RETURN
+            
             return serverresponse
+        
         except requests.exceptions.ConnectionError:
+
+            logging.info("New session creation failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # end session
@@ -559,7 +558,12 @@ class Pedal():
 
     def endsession(self):
         try: 
+            logging.info("Ending session %s" self.sessionid if self.sessionid else "None")
+
             serverresponse = requests.post(SERVER_URL + "endsession", data={'mac' : self.mac}).text
+
+            logging.info("Session end returned %s" % serverresponse)
+
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
@@ -568,6 +572,8 @@ class Pedal():
                 self.getsession()
             return serverresponse
         except requests.exceptions.ConnectionError:
+
+            logging.info("Session end failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
 
@@ -578,7 +584,12 @@ class Pedal():
 
     def joinsession(self, nickname, sessionid):
         try:
+            logging.info("Joining session %s" sessionid)
+
             serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
+
+            logging.info("Session join returned %s" % serverresponse)
+
             if serverresponse == FAILURE_RETURN:
                 self.getsession()
             elif serverresponse == SUCCESS_RETURN:
@@ -587,6 +598,8 @@ class Pedal():
                 self.compositepollthread.start()
             return serverresponse
         except requests.exceptions.ConnectionError:
+
+            logging.info("Session join failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # leave session (without ending it)
@@ -595,13 +608,20 @@ class Pedal():
 
     def leavesession(self):
         try:
+            logging.info("Leaving session %s" self.sessionid if self.sessionid else "None")
+
             serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
+
+            logging.info("Session leave returned %s" % serverresponse)
+
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
                 self.compositepollthread.stop.set()
             return serverresponse
         except requests.exceptions.ConnectionError:
+
+            logging.info("Leave session failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # update pedal object sessionid & owner variables (without actually returning them)
@@ -610,7 +630,12 @@ class Pedal():
 
     def getsession(self, **kwargs):
         try:
+            logging.info("Refreshing session")
+
             serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
+
+            logging.info("Session refresh returned %s" % serverresponse)
+
             if serverresponse != FAILURE_RETURN:
                 if serverresponse == NONE_RETURN:
                     self.sessionid = None
@@ -622,6 +647,8 @@ class Pedal():
                     return SUCCESS_RETURN
             return serverresponse 
         except requests.exceptions.ConnectionError:
+
+            logging.info("Session refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # updat pedal object sessionmembers list
@@ -629,7 +656,12 @@ class Pedal():
 
     def getmembers(self):
         try:
+            logging.info("Refreshing member list")
+
             serverresponse = requests.post(SERVER_URL + "getmembers", data={'mac' : self.mac}).text
+
+            logging.info("Member list refresh returned %s" % serverresponse)
+
             if serverresponse == FAILURE_RETURN:
                 self.sessionmembers = []
             else:
@@ -637,6 +669,8 @@ class Pedal():
                 return SUCCESS_RETURN
             return serverresponse
         except requests.exceptions.ConnectionError:
+
+            logging.info("Member list refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # requests current composite from server 
@@ -645,7 +679,11 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
+            logging.info("Downloading composite for timestamp %s" % timestamp.strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
+
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
+
+            logging.info("Composite download returned %s" % serverresponse)
             if compositeresp.text != NONE_RETURN:
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
@@ -654,6 +692,8 @@ class Pedal():
                 return SUCCESS_RETURN
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
+
+            logging.info("Composite download failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # ---------------------------
@@ -711,8 +751,15 @@ class Pedal():
                 np.save(loopfile, self.loopdata)
 
                 try:
+                    logging.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
+
                     serverresponse = requests.post(SERVER_URL + "addtrack", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
+
+                    logging.info("Loop upload returned %d" % serverresponse)
+
                 except requests.exceptions.ConnectionError:
+
+                    logging.info("Loop upload failed. Unable to connect to server")  
                     serverresponse = OFFLINE_RETURN
 
                 # reset loop array, assuming it'll be roughly the same shape as composite
@@ -739,19 +786,36 @@ class Pedal():
             if self.sessionid:
                 if index:
                     if index in self.loops:
-                        self.loops.pop(self.loops.index(index))
+                        logging.info("Removing loop %d from session %s" % (index, self.sessionid))
+
                         serverresponse = requests.post(SERVER_URL + "removetrack", data={'mac' : self.mac, 'index' : index}).text
+                        
+                        logging.info("Loop removal returned %s" % serverresponse)
+
+                        if serverresponse == SUCCESS_RETURN:
+                            self.loops.pop(self.loops.index(index))
+                        
                         self.getcomposite()
                         return serverresponse
                     else:
                         return FAILURE_RETURN
                 elif len(self.loops) > 1:
+                    logging.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
+
                     serverresponse = requests.post(SERVER_URL + "removetrack", data={'mac' : self.mac, 'index' : max(self.loops)}).text
+
+                    logging.info("Loop removal returned %s" % serverresponse)
+
+                    if serverresponse == SUCCESS_RETURN:
+                        self.loops.pop(self.loops.index(max(self.loops)))
+                    
                     self.getcomposite()
                     return serverresponse
             else:
                 # can only erase most recent loop if using without web session
                 if self.lastcomposite is not None:
+                    logging.info("Removing most recent loop from offline session")
+
                     self.compositedata = np.copy(self.lastcomposite)
                 else:
                     self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
