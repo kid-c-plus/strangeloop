@@ -3,8 +3,9 @@
 import pedal
 import time
 import logging
+import sys
 
-logging.basicConfig(filename='/var/log/strangeloop/pedal.log', level=logging.DEBUG)
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 
 a = pedal.Pedal(debug=True)
 try:

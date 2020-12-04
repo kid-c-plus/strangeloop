@@ -220,7 +220,7 @@ class Pedal():
                     self.pedal.avgsampleperiod = (passtime - self.uptime) / self.monitors
 
                 # determines whether some debug information is printed
-                debugpass = not (self.monitors - 1) % 100000
+                debugpass = not (self.monitors - 1) % 10000
 
                 if self.pedal.monitoring:
 
@@ -292,6 +292,8 @@ class Pedal():
                             # could use binary search, but in practice this should be within a small number of array indices away from the current composite index
                             # each time, as long as sampling rate stays constant. so, though the worst-case big-o of this is worse, it'll perform better on average
 
+                            lastcompositeindex = compositeindex
+
                             while compositeindex < len(self.pedal.compositedata) - 1 and inputtimestamp > self.pedal.compositedata[compositeindex + 1]['timestamp']:
                                 compositeindex += 1 
 
@@ -317,9 +319,8 @@ class Pedal():
                                     # even if the compositedata array has changed size since the last pass, and lastcompositeindex is larger
                                     # than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
                                     else:
+                                        logging.debug("writing to looped array from %d to %d and from 0 to %d" % (lastcompositeindex + 1, len(self.pedal.compositedata), compositeindex + 1))
                                         self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
-
-                                    lastcompositeindex = compositeindex
 
                                     if debugpass:
                                         logging.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
