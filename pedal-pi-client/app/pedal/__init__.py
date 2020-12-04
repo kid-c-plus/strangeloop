@@ -32,6 +32,9 @@ END_LOOP_SLEEP = 0.0
 RPI_POLL_INTERVAL = 0.1
 COMPOSITE_POLL_INTERVAL = 2
 
+# loops can be up to 2 minutes long
+MAX_LOOP_DURATION = 120
+
 # numpy dtype to define loop & composite array entries
 LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
 
@@ -83,7 +86,7 @@ PEDAL_KW_DEFAULTS = {
 
     # save output
     'audiosaveoutput'   : False,
-    'audiooutfile'      : "/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.out" % datetime.now.strftime("%Y-%m-%d-%H:%M:%S"),
+    'audiooutfile'      : "/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.out" % datetime.utcnow().strftime("%Y-%m-%d-%H:%M:%S"),
 
     # write output to AUX output
     'audioplayoutput'   : True
@@ -114,7 +117,7 @@ class Pedal():
             Thread.__init__(self)
             self.stop = Event()
             self.pedal = pedal
-            self.timestamp = datetime.now().timestamp()
+            self.timestamp = datetime.utcnow().timestamp()
 
             logging.debug("Initialized composite polling thread")
 
@@ -129,7 +132,7 @@ class Pedal():
 
                 # timestamp to determine whether any new data needs to be downloaded
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
-                    self.timestamp = datetime.now().timestamp()
+                    self.timestamp = datetime.utcnow().timestamp()
 
                     logging.debug("Downloaded new composite at %s" % self.timestamp.strftime("%Y-%m-%d-%H:%M:%S"))
 
@@ -248,21 +251,24 @@ class Pedal():
 
                                 looprectimestamp = passtime - looprecstart
 
-                                # loop length is unbounded. add 10 seconds to loop np array
-                                if self.pedal.loopiter >= len(self.pedal.loopdata):
-                                    self.pedal.loopdata = extendarray(self.pedal.loopdata)
+                                # don't record past maximum loop length
+                                if looprectimestamp < MAX_LOOP_DURATION:
 
-                                # composite is also unbound on first loop
-                                if self.pedal.loopiter >= len(self.pedal.compositedata):
-                                    self.pedal.compositedata = extendarray(self.pedal.compositedata)
+                                    # loop length is unbounded. add 10 seconds to loop np array
+                                    if self.pedal.loopindex >= len(self.pedal.loopdata):
+                                        self.pedal.loopdata = extendarray(self.pedal.loopdata)
 
-                                # save input to both composite and loopdata array to upload to server
-                                # store timestamp relative to composite playback head, and sort array by timestamps before submitting
-                                self.pedal.loopdata[self.pedal.loopiter] = self.pedal.compositedata[self.pedal.loopiter] = (inputbits, looprectimestamp)
-                                self.pedal.loopiter += 1
+                                    # composite is also unbound on first loop
+                                    if self.pedal.loopindex >= len(self.pedal.compositedata):
+                                        self.pedal.compositedata = extendarray(self.pedal.compositedata)
 
-                                if debugpass:
-                                    logging.debug("AudioProcessingThread: Recorded audio to first loop: %d" % inputbits)
+                                    # save input to both composite and loopdata array to upload to server
+                                    # store timestamp relative to composite playback head, and sort array by timestamps before submitting
+                                    self.pedal.loopdata[self.pedal.loopindex] = self.pedal.compositedata[self.pedal.loopindex] = (inputbits, looprectimestamp)
+                                    self.pedal.loopindex += 1
+
+                                    if debugpass:
+                                        logging.debug("AudioProcessingThread: Recorded audio to first loop: %d" % inputbits)
                         else:
 
                             # reset first loop record variable
@@ -319,13 +325,13 @@ class Pedal():
                                         logging.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
 
                                     # loop length is unbounded. add 10 seconds to loop np array
-                                    if self.pedal.loopiter >= len(self.pedal.loopdata):
+                                    if self.pedal.loopindex >= len(self.pedal.loopdata):
                                         self.pedal.loopdata = extendarray(self.pedal.loopdata)
 
                                     # save input to loopdata array to upload to server
                                     # store timestamp relative to composite playback head, and sort array by timestamps before submitting
-                                    self.pedal.loopdata[self.pedal.loopiter] = (inputbits, inputtimestamp)
-                                    self.pedal.loopiter += 1
+                                    self.pedal.loopdata[self.pedal.loopindex] = (inputbits, inputtimestamp)
+                                    self.pedal.loopindex += 1
 
                     # write to AUX output
                     if self.pedal.audioplayoutput:
@@ -461,7 +467,7 @@ class Pedal():
 
         # initialize empty loop data ~ 10 seconds long
         self.loopdata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
-        self.loopiter = 0
+        self.loopindex = 0
 
         # initialize composite data and average value (zero to start), used for layering loops on top of the composite 
         self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
@@ -726,11 +732,11 @@ class Pedal():
         with self.looplock and self.compositelock:
 
             # remove allocated but unused array space
-            self.loopdata = self.loopdata[:self.loopiter]
+            self.loopdata = self.loopdata[:self.loopindex]
 
             # if composite is being written to for the first time, truncate excess allocated space
             if self.emptycomposite:
-                self.compositedata = self.compositedata[:self.loopiter]
+                self.compositedata = self.compositedata[:self.loopindex]
                 self.emptycomposite = False
 
             # compute new input norm for adding subsequent input
@@ -765,14 +771,14 @@ class Pedal():
                 # reset loop array, assuming it'll be roughly the same shape as composite
                 # ultimately, though, array shape depends on audio sampling rate
                 self.loopdata = np.zeros_like(self.compositedata)
-                self.loopiter = 0
+                self.loopindex = 0
 
                 # apply new composite
                 self.getcomposite()
                 return serverresponse
 
             self.loopdata = np.zeros_like(self.compositedata)
-            self.loopiter = 0
+            self.loopindex = 0
 
             return SUCCESS_RETURN
 
