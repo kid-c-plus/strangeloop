@@ -539,7 +539,7 @@ class Pedal():
         try:
             logging.info("Creating new session")
 
-            serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}, **requestargs).text
+            serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}).text
             
             logging.info("New session creation returned %s" % serverresponse)
 
