@@ -2,6 +2,9 @@
 from app import flaskapp, pedal
 import sys
 import signal
+import logging
+
+logging.basicConfig(filename='/var/log/strangeloop/pedal.log', level=logging.DEBUG)
 
 def handler(signal, frame):
     print('CTRL-C pressed!')

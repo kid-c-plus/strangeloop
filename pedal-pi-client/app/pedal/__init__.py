@@ -29,7 +29,7 @@ END_LOOP_SLEEP = 0.0
 
 # delays to pause between execution of Raspberry Pi and strangeloop server monitoring threads
 # by far the most crucial thread is the AudioProcessing one
-RPI_POLL_INTERVAL = 0.1
+RPI_POLL_INTERVAL = 0.01
 COMPOSITE_POLL_INTERVAL = 2
 
 # loops can be up to 2 minutes long
@@ -195,7 +195,7 @@ class Pedal():
                     retnum += char
                 try:
                     return int(retnum)
-                else:
+                except ValueError:
                     logging.error("AudioProcessingThread: invalid character string %d in input file %d" % (retnum, self.pedal.audioinfile))
                     return 0
 
@@ -281,7 +281,7 @@ class Pedal():
 
                             # compositepassstart of zero indicates this is the first pass where composite will be played 
                             # if playback & recording have reached the end of the composite, return to the start, and note the time new playback began
-                            if not compositepassstart or compositeindex >= len(self.pedal.compositedata):
+                            if not compositepassstart or compositeindex >= len(self.pedal.compositedata) - 1:
                                 compositeindex = 0
                                 compositepassstart = passtime
 
@@ -438,7 +438,7 @@ class Pedal():
         self.__dict__.update(PEDAL_KW_DEFAULTS)
 
         # only override the keyword arguments that appear in the PEDAL_KW_DEFAULTS dict
-        self.__dict__.update((k, v) for k, v in kwargs.values() if k in list(PEDAL_KW_DEFAULTS.keys()))
+        self.__dict__.update((k, v) for k, v in kwargs.items() if k in list(PEDAL_KW_DEFAULTS.keys()))
 
         self.pushbutton1    = rpi.GPIO(PUSHBUTTON1, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.pushbutton2    = rpi.GPIO(PUSHBUTTON2, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
@@ -564,7 +564,7 @@ class Pedal():
 
     def endsession(self):
         try: 
-            logging.info("Ending session %s" self.sessionid if self.sessionid else "None")
+            logging.info("Ending session %s" % self.sessionid if self.sessionid else "None")
 
             serverresponse = requests.post(SERVER_URL + "endsession", data={'mac' : self.mac}).text
 
@@ -590,7 +590,7 @@ class Pedal():
 
     def joinsession(self, nickname, sessionid):
         try:
-            logging.info("Joining session %s" sessionid)
+            logging.info("Joining session %s" % sessionid)
 
             serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
 
@@ -614,7 +614,7 @@ class Pedal():
 
     def leavesession(self):
         try:
-            logging.info("Leaving session %s" self.sessionid if self.sessionid else "None")
+            logging.info("Leaving session %s" % self.sessionid if self.sessionid else "None")
 
             serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
 

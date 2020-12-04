@@ -8,7 +8,10 @@ import flask
 @flaskapp.route("/")
 def index():
     return flask.render_template("index.html", pedal=pedal)
- Synchronous POST endpoints
+ 
+# ------------------------------
+#   Synchronous POST endpoints
+# ------------------------------
 
 @flaskapp.route("/newsession", methods=["POST"])
 def newsession():
