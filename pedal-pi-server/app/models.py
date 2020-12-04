@@ -11,13 +11,71 @@ from common import *
 
 SAMPLE_MAC = "12:34:56:ab:cd:ef"
 
-MAX_TRACK_DURATION = 60000
+# loops can be up to 2 minutes long
+MAX_LOOP_DURATION = 120
 
-PYDUB_ARGS = {
-    'sample_width'  : 2,
-    'frame_rate'    : 44100,
-    'channels'      : 2
-    }
+# numpy dtype to define loop & composite array entries
+LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
+
+# -----------
+#	Methods
+# -----------
+
+# helper method to add a loop to the composite
+# args:     composite: composite loop
+#           loop: new loop to add
+def mergeloops(composite, loop):
+	if composite is None:
+		return loop
+
+	composite = [entry for entry in composite if entry['timestamp'] < MAX_LOOP_DURATION]
+
+	if loop is None:
+		return composite
+
+	compositeindex = lastcompositeindex = loopindex = 0
+	compositenorm = np.mean(composite[:]['value'], dtype=int)
+	
+	# add all of loop to composite, looping through composite multiple times if necessary
+	while loopindex < len(loop):
+
+		if compositeindex >= len(composite):
+			compositeindex = 0
+	
+		inputvalue, inputtimestamp = loop[loopindex]
+
+		while compositeindex < len(composite) - 1 and inputtimestamp > composite[compositeindex + 1]['timestamp']:
+			compositeindex += 1
+
+		# play & write to the closer of the two samples adjoining the current timestamp (or the index sample if the index is at the end of the array)
+		compositeindex = compositeindex if (compositeindex == len(composite) - 1 or inputtimestamp - composite[compositeindex]['timestamp'] <= composite[compositeindex + 1]['timestamp'] - inputtimestamp) else compositeindex + 1
+
+		compositebits = composite[compositeindex]['value']
+
+		# merge input and output bits by adding them and subtracting the mean of the composite array
+		outputbits = inputbits + compositebits - compositenorm
+
+		# add merged input and composite, and average timestamps of composite recording and current input
+		# write to all indices between the last written one and this one
+		# which will result in some pretty square sonic waves, but it's better than having composite array
+		# indices that aren't written to by subsequent loops
+		if lastcompositeindex <= compositeindex:
+			composite[lastcompositeindex + 1 : compositeindex + 1] = (outputbits, (inputtimestamp + composite[compositeindex]['timestamp']) / 2)
+
+		# if the composite index looped around since last pass
+		# even if the composite array has changed size since the last pass, and lastcompositeindex is larger
+		# than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
+		else:
+			composite[lastcompositeindex + 1 : ] = composite[ : compositeindex + 1] = (outputbits, (inputtimestamp + composite[compositeindex]['timestamp']) / 2)
+
+		lastcompositeindex = compositeindex
+
+		# save input to loop array to upload to server
+		# store timestamp relative to composite playback head, and sort array by timestamps before submitting
+		loop[loopindex] = (inputbits, inputtimestamp)
+		loopindex += 1 
+
+	return composite
 
 # -------------------
 #   Database Models
