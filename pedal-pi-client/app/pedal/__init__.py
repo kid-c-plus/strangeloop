@@ -703,7 +703,7 @@ class Pedal():
                     # compute new input norm for adding subsequent input
                     self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
                     self.emptycomposite = False
-                    self.splogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))])
+                    self.splogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
                 return SUCCESS_RETURN
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
