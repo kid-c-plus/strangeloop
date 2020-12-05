@@ -129,7 +129,7 @@ class Pedal():
                 time.sleep(COMPOSITE_POLL_INTERVAL)
 
                 # timestamp to determine whether any new data needs to be downloaded
-                if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
+                if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
                     self.timestamp = dt.utcnow().timestamp()
 
                     self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
@@ -689,7 +689,7 @@ class Pedal():
 
     # requests current composite from server 
     # args:     timestamp: timestamp of last update
-    # returns:  true if updated, false otherwise, OFFLINE_RETURN on failure to connect
+    # returns:  SUCCESS_RETURN if updated, NONE_RETURN otherwise, OFFLINE_RETURN on failure to connect
 
     def getcomposite(self, timestamp=None):
         try:
@@ -697,13 +697,13 @@ class Pedal():
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
-            if compositeresp.text != NONE_RETURN:
-                print("Composite Response:")
-                print(compositeresp.content)     
+            if compositeresp.text != NONE_RETURN and compositeresp.content:
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
                     # compute new input norm for adding subsequent input
                     self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
+                    self.emptycomposite = False
+                    self.splogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))])
                 return SUCCESS_RETURN
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:

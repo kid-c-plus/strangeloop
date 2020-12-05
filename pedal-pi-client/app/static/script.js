@@ -86,4 +86,4 @@ var checkSession = function() {
     $.get(`http://${pedalDomain}/getsession`, ajaxRespHandler);
 }
 
-setInterval(checkSession, 500);
+setInterval(checkSession, 15000);
