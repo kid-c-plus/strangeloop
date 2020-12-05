@@ -73,6 +73,8 @@ PEDAL_KW_DEFAULTS = {
     # Pedal object variables
     'debug'     : False,
     'webdebug'  : False,
+    # default is to use root-level logger
+    'loggername'   : None,
 
     # AudioProcessingThread object variables
 
@@ -115,13 +117,13 @@ class Pedal():
             self.pedal = pedal
             self.timestamp = dt.utcnow().timestamp()
 
-            logging.debug("Initialized composite polling thread")
+            self.pedal.slplogger.debug("Initialized composite polling thread")
 
         # main thread execution loop
 
         def run(self):
 
-            logging.debug("Started composite polling thread")
+            self.pedal.slplogger.debug("Started composite polling thread")
 
             while self.pedal.running: 
                 time.sleep(COMPOSITE_POLL_INTERVAL)
@@ -130,9 +132,9 @@ class Pedal():
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
                     self.timestamp = dt.utcnow().timestamp()
 
-                    logging.debug("Downloaded new composite at %s" % dt.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
+                    self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
 
-            logging.debug("Ended composite polling thread")
+            self.pedal.slplogger.debug("Ended composite polling thread")
 
 
     # --------------------------------------------------------------------
@@ -168,13 +170,13 @@ class Pedal():
             if pedal.audiosaveoutput:
                 self.audiooutfileobj = open(pedal.audiooutfile, mode="w")
 
-            logging.debug("Initialized audio processing thread")
+            self.pedal.slplogger.debug("Initialized audio processing thread")
 
         # main thread execution loop
 
         def run(self):
 
-            logging.debug("Started audio processing thread")
+            self.pedal.slplogger.debug("Started audio processing thread")
 
             # simple helper method to append whitespace to array
             # return: new array with whitespace appended
@@ -192,7 +194,7 @@ class Pedal():
                 try:
                     return int(retnum)
                 except ValueError:
-                    logging.error("AudioProcessingThread: invalid character string %d in input file %d" % (retnum, self.pedal.audioinfile))
+                    self.pedal.slplogger.error("AudioProcessingThread: invalid character string %d in input file %d" % (retnum, self.pedal.audioinfile))
                     return 0
 
             # initialize values for composite iteration & timestamp calculation
@@ -264,7 +266,7 @@ class Pedal():
                                     self.pedal.loopindex += 1
 
                                     if debugpass:
-                                        logging.debug("AudioProcessingThread: Recorded audio to first loop: %d" % inputbits)
+                                        self.pedal.slplogger.debug("AudioProcessingThread: Recorded audio to first loop: %d" % inputbits)
                         else:
 
                             # reset first loop record variable
@@ -315,11 +317,11 @@ class Pedal():
                                     # even if the compositedata array has changed size since the last pass, and lastcompositeindex is larger
                                     # than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
                                     else:
-                                        logging.debug("writing to looped array from %d to %d and from 0 to %d" % (lastcompositeindex + 1, len(self.pedal.compositedata), compositeindex + 1))
+                                        self.pedal.slplogger.debug("writing to looped array from %d to %d and from 0 to %d" % (lastcompositeindex + 1, len(self.pedal.compositedata), compositeindex + 1))
                                         self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
 
                                     if debugpass:
-                                        logging.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
+                                        self.pedal.slplogger.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
 
                                     # loop length is unbounded. add 10 seconds to loop np array
                                     if self.pedal.loopindex >= len(self.pedal.loopdata):
@@ -341,19 +343,19 @@ class Pedal():
                         except:
                             pass
 
-            logging.debug("Ended audio processing thread")
+            self.pedal.slplogger.debug("Ended audio processing thread")
 
         # process end functions, mostly debugging
 
         def end(self):
 
             totaltime = time.time() - self.uptime
-            logging.info("AudioProcessingThread: monitoring frequency: %f Hz" % (self.monitors / totaltime))
+            self.pedal.slplogger.info("AudioProcessingThread: monitoring frequency: %f Hz" % (self.monitors / totaltime))
 
             if self.pedal.audiosaveoutput:
                 self.audiooutfile.close()
 
-            logging.debug("Deinitialized audio processing thread")
+            self.pedal.slplogger.debug("Deinitialized audio processing thread")
 
     # -------------------------------------------------------------------
     # RPiMonitoringThread - Thread superclass to monitor RPi components 
@@ -369,13 +371,13 @@ class Pedal():
             Thread.__init__(self)
             self.pedal = pedal
 
-            logging.debug("Initialized RPi Polling Thread")
+            self.pedal.slplogger.debug("Initialized RPi Polling Thread")
 
         # main thread execution loop
 
         def run(self):
 
-            logging.debug("Started RPi Polling Thread")
+            self.pedal.slplogger.debug("Started RPi Polling Thread")
             
             while self.pedal.running:
                 time.sleep(RPI_POLL_INTERVAL)
@@ -389,13 +391,13 @@ class Pedal():
 
                 # pedal functions are only available when pedal is in monitor mode
                 if footswitch_val == FOOTSWITCH_MON and not self.pedal.monitoring:
-                    print("Footswitch set to monitor mode")
+                    self.pedal.slplogger.info("Footswitch set to monitor mode")
                     self.pedal.monitoring = True
                     debounce_delay = True
 
                 # in bypass mode, the pedal can neither read from input nor write to output
                 elif footswitch_val == FOOTSWITCH_BYPASS and self.pedal.monitoring:
-                    print("Footswitch set to bypass mode")
+                    self.pedal.slplogger.info("Footswitch set to bypass mode")
                     self.pedal.monitoring = False
                     if self.pedal.recording:
                         self.pedal.endloop()
@@ -403,39 +405,42 @@ class Pedal():
 
                 # you can only remove a loop if you aren't currently recording one
                 if pushbutton1_val == PUSHBUTTON_PRESS and not self.pedal.emptycomposite and not self.pedal.recording:
-                    print("Loop removed")
+                    self.pedal.slplogger.info("Loop removed")
                     self.pedal.removeloop()
                     debounce_delay = True
 
                 # start loop
                 if pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and not self.pedal.recording:
-                    print("Loop started")
+                    self.pedal.slplogger.info("Loop started")
                     self.pedal.startloop()
                     debounce_delay = True
 
                 # end loop
                 elif pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording:
-                    print("Loop ended")
+                    self.pedal.slplogger.info("Loop ended")
                     self.pedal.endloop()
                     debounce_delay = True
 
                 if debounce_delay:
                     rpi.debounce_delay()
 
-            logging.debug("Ended RPi Polling Thread")
+            self.pedal.slplogger.debug("Ended RPi Polling Thread")
 
     # Pedal constructor class
     # args:     **kwargs: override PEDAL_KW_DEFAULTS above
 
     def __init__(self, **kwargs):
 
-        logging.info("Initializing Pedal object")
-
         # set object properties
         self.__dict__.update(PEDAL_KW_DEFAULTS)
 
         # only override the keyword arguments that appear in the PEDAL_KW_DEFAULTS dict
         self.__dict__.update((k, v) for k, v in kwargs.items() if k in list(PEDAL_KW_DEFAULTS.keys()))
+
+        # flask logger to use
+        self.slplogger = logging.getLogger(self.loggername)
+
+        self.slplogger.info("Initializing Pedal object")
 
         self.pushbutton1    = rpi.GPIO(PUSHBUTTON1, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
         self.pushbutton2    = rpi.GPIO(PUSHBUTTON2, rpi.GPIO.FSEL.INPUT, rpi.GPIO.PUD.UP)
@@ -505,14 +510,14 @@ class Pedal():
 
         self.led.turn_off()
 
-        logging.info("Initialized Pedal object")
+        self.slplogger.info("Initialized Pedal object")
 
     # destructor method
     # set end flag so threads can exit gracefully
 
     def end(self):
 
-        logging.info("Deinitializing Pedal object")
+        self.slplogger.info("Deinitializing Pedal object")
 
         self.running = False
 
@@ -522,7 +527,7 @@ class Pedal():
 
         self.led.turn_off()
 
-        logging.info("Deinitialized Pedal object")
+        self.slplogger.info("Deinitialized Pedal object")
 
     # ------------------------------
     #   Server Interaction Methods
@@ -535,11 +540,11 @@ class Pedal():
 
     def newsession(self, nickname):
         try:
-            logging.info("Creating new session")
+            self.slplogger.info("Creating new session")
 
             serverresponse = requests.post(SERVER_URL + "newsession", data={'mac' : self.mac, 'nickname' : nickname}).text
             
-            logging.info("New session creation returned %s" % serverresponse)
+            self.slplogger.info("New session creation returned %s" % serverresponse)
 
             if serverresponse == FAILURE_RETURN:
                 self.getsession()
@@ -555,7 +560,7 @@ class Pedal():
         
         except requests.exceptions.ConnectionError:
 
-            logging.info("New session creation failed. Unable to connect to server")  
+            self.slplogger.info("New session creation failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # end session
@@ -564,11 +569,11 @@ class Pedal():
 
     def endsession(self):
         try: 
-            logging.info("Ending session %s" % self.sessionid if self.sessionid else "None")
+            self.slplogger.info("Ending session %s" % self.sessionid if self.sessionid else "None")
 
             serverresponse = requests.post(SERVER_URL + "endsession", data={'mac' : self.mac}).text
 
-            logging.info("Session end returned %s" % serverresponse)
+            self.slplogger.info("Session end returned %s" % serverresponse)
 
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
@@ -580,7 +585,7 @@ class Pedal():
             return serverresponse
         except requests.exceptions.ConnectionError:
 
-            logging.info("Session end failed. Unable to connect to server")  
+            self.slplogger.info("Session end failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
 
@@ -591,11 +596,11 @@ class Pedal():
 
     def joinsession(self, nickname, sessionid):
         try:
-            logging.info("Joining session %s" % sessionid)
+            self.slplogger.info("Joining session %s" % sessionid)
 
             serverresponse = requests.post(SERVER_URL + "joinsession", data={'mac' : self.mac, 'nickname' : nickname, 'sessionid' : sessionid}).text
 
-            logging.info("Session join returned %s" % serverresponse)
+            self.slplogger.info("Session join returned %s" % serverresponse)
 
             if serverresponse == FAILURE_RETURN:
                 self.getsession()
@@ -607,7 +612,7 @@ class Pedal():
             return serverresponse
         except requests.exceptions.ConnectionError:
 
-            logging.info("Session join failed. Unable to connect to server")  
+            self.slplogger.info("Session join failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # leave session (without ending it)
@@ -616,11 +621,11 @@ class Pedal():
 
     def leavesession(self):
         try:
-            logging.info("Leaving session %s" % self.sessionid if self.sessionid else "None")
+            self.slplogger.info("Leaving session %s" % self.sessionid if self.sessionid else "None")
 
             serverresponse = requests.post(SERVER_URL + "leavesession", data={'mac' : self.mac}).text
 
-            logging.info("Session leave returned %s" % serverresponse)
+            self.slplogger.info("Session leave returned %s" % serverresponse)
 
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
@@ -630,7 +635,7 @@ class Pedal():
             return serverresponse
         except requests.exceptions.ConnectionError:
 
-            logging.info("Leave session failed. Unable to connect to server")  
+            self.slplogger.info("Leave session failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # update pedal object sessionid & owner variables (without actually returning them)
@@ -639,11 +644,11 @@ class Pedal():
 
     def getsession(self, **kwargs):
         try:
-            logging.info("Refreshing session")
+            self.slplogger.info("Refreshing session")
 
             serverresponse = requests.post(SERVER_URL + "getsession", data={'mac' : self.mac}, **kwargs).text
 
-            logging.info("Session refresh returned %s" % serverresponse)
+            self.slplogger.info("Session refresh returned %s" % serverresponse)
 
             if serverresponse != FAILURE_RETURN:
                 if serverresponse == NONE_RETURN:
@@ -657,7 +662,7 @@ class Pedal():
             return serverresponse 
         except requests.exceptions.ConnectionError:
 
-            logging.info("Session refresh failed. Unable to connect to server")  
+            self.slplogger.info("Session refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # updat pedal object sessionmembers list
@@ -665,11 +670,11 @@ class Pedal():
 
     def getmembers(self):
         try:
-            logging.info("Refreshing member list")
+            self.slplogger.info("Refreshing member list")
 
             serverresponse = requests.post(SERVER_URL + "getmembers", data={'mac' : self.mac}).text
 
-            logging.info("Member list refresh returned %s" % serverresponse)
+            self.slplogger.info("Member list refresh returned %s" % serverresponse)
 
             if serverresponse == FAILURE_RETURN:
                 self.sessionmembers = []
@@ -679,7 +684,7 @@ class Pedal():
             return serverresponse
         except requests.exceptions.ConnectionError:
 
-            logging.info("Member list refresh failed. Unable to connect to server")  
+            self.slplogger.info("Member list refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # requests current composite from server 
@@ -688,13 +693,13 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
-            logging.info("Downloading composite for timestamp %s" % dt.fromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
+            self.slplogger.info("Downloading composite for timestamp %s" % dt.fromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
             if compositeresp.text != NONE_RETURN:
-                logging.info("Composite Response:")
-                logging.info(compositeresp.content)     
+                print("Composite Response:")
+                print(compositeresp.content)     
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
                     # compute new input norm for adding subsequent input
@@ -703,7 +708,7 @@ class Pedal():
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
 
-            logging.info("Composite download failed. Unable to connect to server")  
+            self.slplogger.info("Composite download failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # ---------------------------
@@ -764,15 +769,15 @@ class Pedal():
                 loopfile.seek(0)
 
                 try:
-                    logging.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
+                    self.slplogger.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
 
                     serverresponse = requests.post(SERVER_URL + "addloop", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
 
-                    logging.info("Loop upload returned %s" % serverresponse)
+                    self.slplogger.info("Loop upload returned %s" % serverresponse)
 
                 except requests.exceptions.ConnectionError:
 
-                    logging.info("Loop upload failed. Unable to connect to server")  
+                    self.slplogger.info("Loop upload failed. Unable to connect to server")  
                     serverresponse = OFFLINE_RETURN
 
                 # reset loop array, assuming it'll be roughly the same shape as composite
@@ -799,11 +804,11 @@ class Pedal():
             if self.sessionid:
                 if index:
                     if index in self.loops:
-                        logging.info("Removing loop %d from session %s" % (index, self.sessionid))
+                        self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
 
                         serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
                         
-                        logging.info("Loop removal returned %s" % serverresponse)
+                        self.slplogger.info("Loop removal returned %s" % serverresponse)
 
                         if serverresponse == SUCCESS_RETURN:
                             self.loops.pop(self.loops.index(index))
@@ -813,11 +818,11 @@ class Pedal():
                     else:
                         return FAILURE_RETURN
                 elif len(self.loops) > 1:
-                    logging.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
+                    self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
 
                     serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loops)}).text
 
-                    logging.info("Loop removal returned %s" % serverresponse)
+                    self.slplogger.info("Loop removal returned %s" % serverresponse)
 
                     if serverresponse == SUCCESS_RETURN:
                         self.loops.pop(self.loops.index(max(self.loops)))
@@ -827,7 +832,7 @@ class Pedal():
             else:
                 # can only erase most recent loop if using without web session
                 if self.lastcomposite is not None:
-                    logging.info("Removing most recent loop from offline session")
+                    self.slplogger.info("Removing most recent loop from offline session")
 
                     self.compositedata = np.copy(self.lastcomposite)
                     self.loops.pop(self.loops.index(max(self.loops)))

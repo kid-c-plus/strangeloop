@@ -110,8 +110,7 @@ def getsession():
         return "%s %s %s" % (SUCCESS_RETURN, pedal.sessionid, "owner" if pedal.owner else "member")
     elif pedalresponse == OFFLINE_RETURN:
         flask.flash("Unable to communicate with server. Session not ended.")
-    else:
-        return pedalresponse
+    return pedalresponse
 
 
 # -------------------------------
