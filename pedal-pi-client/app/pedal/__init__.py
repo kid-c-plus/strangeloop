@@ -757,9 +757,9 @@ class Pedal():
                 try:
                     logging.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
 
-                    serverresponse = requests.post(SERVER_URL + "addtrack", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
+                    serverresponse = requests.post(SERVER_URL + "addloop", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
 
-                    logging.info("Loop upload returned %d" % serverresponse)
+                    logging.info("Loop upload returned %s" % serverresponse)
 
                 except requests.exceptions.ConnectionError:
 
@@ -792,7 +792,7 @@ class Pedal():
                     if index in self.loops:
                         logging.info("Removing loop %d from session %s" % (index, self.sessionid))
 
-                        serverresponse = requests.post(SERVER_URL + "removetrack", data={'mac' : self.mac, 'index' : index}).text
+                        serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
                         
                         logging.info("Loop removal returned %s" % serverresponse)
 
@@ -806,7 +806,7 @@ class Pedal():
                 elif len(self.loops) > 1:
                     logging.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
 
-                    serverresponse = requests.post(SERVER_URL + "removetrack", data={'mac' : self.mac, 'index' : max(self.loops)}).text
+                    serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loops)}).text
 
                     logging.info("Loop removal returned %s" % serverresponse)
 
