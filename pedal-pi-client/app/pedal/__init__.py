@@ -130,7 +130,7 @@ class Pedal():
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
                     self.timestamp = dt.utcnow().timestamp()
 
-                    logging.debug("Downloaded new composite at %s" % self.timestamp.strftime("%Y-%m-%d-%H:%M:%S"))
+                    logging.debug("Downloaded new composite at %s" % dt.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
 
             logging.debug("Ended composite polling thread")
 
