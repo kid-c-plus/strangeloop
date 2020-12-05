@@ -1,10 +1,12 @@
 from app import flaskapp, pedal
 import flask
+import os
 
 # -------------
 #   Constants
 # -------------
 
+# directory containing static web GUI resource files
 STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static"
 
 # --------------------------------
@@ -104,5 +106,7 @@ def getsession():
 #   Static Fileserver Endpoints
 # -------------------------------
 
-for file in STATIC_FILES:
-    flaskapp.add_url_rule
+staticmethods = 0
+for staticfile in os.listdir(STATIC_DIR):
+    staticmethods += 1
+    flaskapp.add_url_rule("/static/%s" % staticfile, endpoint="static%d" % staticmethods, view_func=lambda sf=staticfile : flaskapp.send_static_file(sf), methods=["GET"])

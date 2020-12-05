@@ -1,4 +1,5 @@
 import uuid
+import platform
 import json
 import requests
 import time
@@ -454,6 +455,8 @@ class Pedal():
         # device MAC address is used as unique id in server interactions
         uuidnode = uuid.getnode()
         self.mac = ':'.join(("%012X" % uuidnode)[i:i+2] for i in range(0, 12, 2))
+        # recieve device domain name on local network for AJAX callbacks in flask
+        self.domainname = platform.node()
         self.sessionid = None
         self.owner = False
         self.sessionmembers = None

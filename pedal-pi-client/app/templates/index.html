@@ -1,8 +1,8 @@
 <html>
     <head>
         <title>strangeloop</title>
-        <link rel="stylesheet/css" src="style.css" />
-        <script src="jquery-3.5.1.min.js"></script>
+        <link rel="stylesheet" href="static/style.css" />
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
     </head>
     <body>
         <div id="sessioncontrol" class="controlunit">
@@ -42,8 +42,9 @@
         </div>
         <script>
             var inSession = {% if pedal.sessionid %} true; {% else %} false; {% endif %}
-            var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}
+            var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}	
+	        var pedalDomain = {{ pedal.domainname }};
         </script>
-        <script src="script.js"></script>
+        <script src="static/script.js"></script>
     </body>
 </html>
