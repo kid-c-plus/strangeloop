@@ -547,7 +547,8 @@ class Pedal():
             elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
                 self.sessionid = serverresponse 
                 self.owner = True
-                self.compositepollthread.start()
+                if not self.compositepollthread.is_alive():
+                    self.compositepollthread.start()
                 return SUCCESS_RETURN
             
             return serverresponse
@@ -572,7 +573,8 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                self.compositepollthread.stop.set()
+                if self.compositepollthread.is_alive():
+                    self.compositepollthread.stop.set()
             else:
                 self.getsession()
             return serverresponse
@@ -600,7 +602,8 @@ class Pedal():
             elif serverresponse == SUCCESS_RETURN:
                 self.sessionid = sessionid
                 self.owner = False
-                self.compositepollthread.start()
+                if not self.compositepollthread.is_alive():
+                    self.compositepollthread.start()
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -622,7 +625,8 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                self.compositepollthread.stop.set()
+                if self.compositepollthread.is_alive():
+                    self.compositepollthread.stop.set()
             return serverresponse
         except requests.exceptions.ConnectionError:
 

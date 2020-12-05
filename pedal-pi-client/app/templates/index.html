@@ -43,7 +43,7 @@
         <script>
             var inSession = {% if pedal.sessionid %} true; {% else %} false; {% endif %}
             var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}	
-	        var pedalDomain = {{ pedal.domainname }};
+	        var pedalDomain = "{{ pedal.domainname }}";
         </script>
         <script src="static/script.js?v=1.0"></script>
     </body>
