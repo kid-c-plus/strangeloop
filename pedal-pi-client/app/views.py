@@ -1,6 +1,12 @@
 from app import flaskapp, pedal
 import flask
 
+# -------------
+#   Constants
+# -------------
+
+STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static"
+
 # --------------------------------
 #   Client-Server Endpoints
 # --------------------------------
@@ -92,3 +98,11 @@ def getsession():
         return "%s %s %s" % (pedal.SUCCESS_RETURN, pedal.sessionid, "owner" if self.owner else "member")
     else:
         return pedalresponse
+
+
+# -------------------------------
+#   Static Fileserver Endpoints
+# -------------------------------
+
+for file in STATIC_FILES:
+    flaskapp.add_url_rule
