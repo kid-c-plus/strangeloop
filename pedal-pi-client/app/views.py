@@ -42,7 +42,7 @@ def newsession():
                 }[pedalresponse])
     else:
         flask.flash("Nickname required.")
-    return flask.redirect(flask.url_for("/index"))
+    return flask.redirect(flask.url_for("index"))
 
 @flaskapp.route("/joinsession", methods=["POST"])
 def joinsession():
@@ -62,7 +62,7 @@ def joinsession():
             }[pedalresponse])
     else:
         flask.flash("Session ID and nickname required.")
-    return flask.redirect(flask.url_for("/index"))
+    return flask.redirect(flask.url_for("index"))
 
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
@@ -73,7 +73,7 @@ def endsession():
         flask.flash("Unable to communicate with server. Session not ended.")
     else:
         flask.flash("Session %s is not owned by you." % pedal.sessionid if pedal.sessionid else "Pedal not in session.")
-    return flask.redirect(flask.url_for("/index"))
+    return flask.redirect(flask.url_for("index"))
 
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
@@ -84,7 +84,7 @@ def leavesession():
         flask.flash("Unable to communicate with server. Session not left.")
     else:
         flask.flash("Pedal not in session.")
-    return flask.redirect(flask.url_for("/index"))
+    return flask.redirect(flask.url_for("index"))
 
 # -------------------------------
 #   Asynchronous POST endpoints
