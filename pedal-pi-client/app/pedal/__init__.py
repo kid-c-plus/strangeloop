@@ -461,11 +461,6 @@ class Pedal():
         self.owner = False
         self.sessionmembers = None
 
-        # check initial session membership
-        sessionresp = self.getsession(timeout=1)
-        if self.sessionid:
-            self.getmembers()
-
         # assume 41 kHz sampling interval
         self.avgsampleperiod = 1 / 41000
 
@@ -504,6 +499,11 @@ class Pedal():
         # start process threads
         self.processaudiothread.start()
         self.monitorrpithread.start()
+
+        # check initial session membership
+        sessionresp = self.getsession(timeout=1)
+        if self.sessionid:
+            self.getmembers()
 
         if self.webdebug:
             print(self.newsession("rick"))
