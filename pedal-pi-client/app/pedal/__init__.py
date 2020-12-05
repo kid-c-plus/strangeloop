@@ -5,7 +5,7 @@ import requests
 import time
 import atexit
 from threading import Thread, Event, Lock
-from datetime import datetime
+from datetime import datetime as dt
 from io import BytesIO
 import numpy as np
 from . import rpi
@@ -82,7 +82,7 @@ PEDAL_KW_DEFAULTS = {
 
     # save output
     'audiosaveoutput'   : False,
-    'audiooutfile'      : "/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.out" % datetime.utcnow().strftime("%Y-%m-%d-%H:%M:%S"),
+    'audiooutfile'      : "/opt/strangeloop/pedal-pi-client/app/pedal/debug-%s.out" % dt.utcnow().strftime("%Y-%m-%d-%H:%M:%S"),
 
     # write output to AUX output
     'audioplayoutput'   : True
@@ -113,7 +113,7 @@ class Pedal():
             Thread.__init__(self)
             self.stop = Event()
             self.pedal = pedal
-            self.timestamp = datetime.utcnow().timestamp()
+            self.timestamp = dt.utcnow().timestamp()
 
             logging.debug("Initialized composite polling thread")
 
@@ -128,7 +128,7 @@ class Pedal():
 
                 # timestamp to determine whether any new data needs to be downloaded
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp):
-                    self.timestamp = datetime.utcnow().timestamp()
+                    self.timestamp = dt.utcnow().timestamp()
 
                     logging.debug("Downloaded new composite at %s" % self.timestamp.strftime("%Y-%m-%d-%H:%M:%S"))
 
@@ -684,7 +684,7 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
-            logging.info("Downloading composite for timestamp %s" % timestamp.strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
+            logging.info("Downloading composite for timestamp %s" % dt.fromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
