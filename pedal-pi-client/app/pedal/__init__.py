@@ -11,20 +11,15 @@ import numpy as np
 from . import rpi
 import logging
 
+import sys
+sys.path.append("/opt/strangeloop/common")
+from common import *
+
 # -------------
 #   Constants
 # -------------
 
 SERVER_URL = "http://192.168.1.72:5000/"
-
-# string responses sent by server
-SUCCESS_RETURN = "True"
-FAILURE_RETURN = "False"
-FULL_RETURN = "Full"
-NONE_RETURN = "None"
-
-# return value if unable to connect to server
-OFFLINE_RETURN = "Offline"
 
 END_LOOP_SLEEP = 0.0
 

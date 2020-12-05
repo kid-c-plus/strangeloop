@@ -2,6 +2,10 @@ from app import flaskapp, pedal
 import flask
 import os
 
+import sys
+sys.path.append("opt/strangeloop/common")
+from common import *
+
 # -------------
 #   Constants
 # -------------
@@ -27,13 +31,14 @@ def newsession():
     if nickname:
         nickname = str(nickname)
         pedalresponse = pedal.newsession(nickname)
-        if pedalresponse == pedal.SUCCESS_RETURN:
+        if pedalresponse == SUCCESS_RETURN:
             flask.flash("Created session %s" % pedal.sessionid)
         else:
             flask.flash({
-                pedal.NONE_RETURN       : "Pedal already in session %s. Session not created." % pedal.sessionid,
-                pedal.FAILURE_RETURN    : "Server error. Session not created.",
-                pedal.FULL_RETURN       : "Server full. Session not created."
+                NONE_RETURN       : "Pedal already in session %s. Session not created." % pedal.sessionid,
+                FAILURE_RETURN    : "Server error. Session not created.",
+                FULL_RETURN       : "Server full. Session not created.",
+                OFFLINE_RETURN    : "Unable to communicate with server. Session not created." 
                 }[pedalresponse])
     else:
         flask.flash("Nickname required.")
@@ -47,12 +52,13 @@ def joinsession():
         sessionid = str(sessionid)
         nickname = str(nickname)
         pedalresponse = pedal.joinsession(nickname, sessionid)
-        if pedalresponse == pedal.SUCCESS_RETURN:
+        if pedalresponse == SUCCESS_RETURN:
             flask.flash("Joined session %s." % pedal.sessionid)
         else:
             flask.flash({
-                pedal.FAILURE_RETURN    : "Pedal already in session %s. Session %s not joined." % (pedal.sessionid, sessionid) if pedal.sessionid else "Session %s not found." % sessionid,
-                pedal.FULL_RETURN       : "Session %s is full." % sessionid
+                FAILURE_RETURN    : "Pedal already in session %s. Session %s not joined." % (pedal.sessionid, sessionid) if pedal.sessionid else "Session %s not found." % sessionid,
+                FULL_RETURN       : "Session %s is full." % sessionid,
+                OFFLINE_RETURN    : "Unable to communicate with server. Session not joined." 
             }[pedalresponse])
     else:
         flask.flash("Session ID and nickname required.")
@@ -61,8 +67,10 @@ def joinsession():
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
     pedalresponse = pedal.endsession()
-    if pedalresponse == pedal.SUCCESS_RETURN:
+    if pedalresponse == SUCCESS_RETURN:
         flask.flash("Session ended.")
+    elif pedalresponse == OFFLINE_RETURN:
+        flask.flash("Unable to communicate with server. Session not ended.")
     else:
         flask.flash("Session %s is not owned by you." % pedal.sessionid if pedal.sessionid else "Pedal not in session.")
     return flask.redirect(flask.url_for("/index"))
@@ -70,8 +78,10 @@ def endsession():
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
     pedalresponse = pedal.leavesession()
-    if pedalresponse == pedal.SUCCESS_RETURN:
+    if pedalresponse == SUCCESS_RETURN:
         flask.flash("Session ended.")
+    elif pedalresponse == OFFLINE_RETURN:
+        flask.flash("Unable to communicate with server. Session not left.")
     else:
         flask.flash("Pedal not in session.")
     return flask.redirect(flask.url_for("/index"))
@@ -96,8 +106,9 @@ def toggleloop():
 @flaskapp.route("/getsession")
 def getsession():
     pedalresponse = pedal.getsession()
-    if pedalresponse == pedal.SUCCESS_RETURN:
-        return "%s %s %s" % (pedal.SUCCESS_RETURN, pedal.sessionid, "owner" if self.owner else "member")
+    if pedalresponse == SUCCESS_RETURN:
+        return "%s %s %s" % (SUCCESS_RETURN, pedal.sessionid, "owner" if self.owner else "member")
+        flask.flash("Unable to communicate with server. Session not ended.")
     else:
         return pedalresponse
 
