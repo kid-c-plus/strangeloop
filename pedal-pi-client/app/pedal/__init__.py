@@ -747,8 +747,8 @@ class Pedal():
             # if pedal in online session, upload json-encoded loop numpy array
             if self.sessionid:
 
-                # sort loop array by timecodes before uploading
-                self.loopdata.sort(order="timecode")
+                # sort loop array by timestamps before uploading
+                self.loopdata.sort(order="timestamp")
 
                  # write returnaudio numpy array to a virtual bytes file, and then save the bytes output
                 loopfile = BytesIO()
@@ -821,6 +821,7 @@ class Pedal():
                     logging.info("Removing most recent loop from offline session")
 
                     self.compositedata = np.copy(self.lastcomposite)
+                    self.loops.pop(self.loops.index(max(self.loops)))
                 else:
                     self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
 
