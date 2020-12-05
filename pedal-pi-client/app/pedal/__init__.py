@@ -693,6 +693,8 @@ class Pedal():
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
             if compositeresp.text != NONE_RETURN:
+                logging.info("Composite Response:")
+                logging.info(compositeresp.content)     
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
                     # compute new input norm for adding subsequent input
