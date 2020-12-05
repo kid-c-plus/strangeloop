@@ -1,5 +1,3 @@
-console.log("loaded code")
-
 // ------------
 //  Constants
 // ------------
@@ -86,4 +84,4 @@ var checkSession = function() {
     $.get(`http://${pedalDomain}/getsession`, ajaxRespHandler);
 }
 
-setInterval(checkSession, 15000);
+setInterval(checkSession, 5000);

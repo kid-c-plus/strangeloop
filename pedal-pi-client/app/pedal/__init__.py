@@ -658,6 +658,10 @@ class Pedal():
                     self.owner, self.sessionid = serverresponse.split(":")
                     # convert string description to a boolean
                     self.owner = (self.owner == "owner")
+
+                    if not self.compositepollthread.is_alive():
+                        self.compositepollthread.start()
+                    
                     return SUCCESS_RETURN
             return serverresponse 
         except requests.exceptions.ConnectionError:
