@@ -688,7 +688,6 @@ class Pedal():
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
-            logging.info("Composite download returned %s" % serverresponse)
             if compositeresp.text != NONE_RETURN:
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
