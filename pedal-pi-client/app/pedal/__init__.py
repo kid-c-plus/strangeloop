@@ -754,6 +754,9 @@ class Pedal():
                 loopfile = BytesIO()
                 np.save(loopfile, self.loopdata)
 
+                # seek start of loopfile so that requests module can send it
+                loopfile.seek(0)
+
                 try:
                     logging.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
 
