@@ -500,6 +500,9 @@ class Pedal():
         self.processaudiothread.start()
         self.monitorrpithread.start()
 
+        # do not start composite polling thread until pedal goes online
+        self.compositepollstarted = False
+
         # check initial session membership
         sessionresp = self.getsession(timeout=1)
         if self.sessionid:
@@ -552,8 +555,10 @@ class Pedal():
             elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
                 self.sessionid = serverresponse 
                 self.owner = True
-                if not self.compositepollthread.is_alive():
+                if not self.compositepollstarted:
+                    self.compositepollstarted = True
                     self.compositepollthread.start()
+
                 return SUCCESS_RETURN
             
             return serverresponse
@@ -578,7 +583,8 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                if self.compositepollthread.is_alive():
+                if self.compositepollstarted:
+                    self.compositepollstarted = False
                     self.compositepollthread.stop.set()
             else:
                 self.getsession()
@@ -607,7 +613,8 @@ class Pedal():
             elif serverresponse == SUCCESS_RETURN:
                 self.sessionid = sessionid
                 self.owner = False
-                if not self.compositepollthread.is_alive():
+                if not self.compositepollstarted:
+                    self.compositepollstarted = True
                     self.compositepollthread.start()
             return serverresponse
         except requests.exceptions.ConnectionError:
@@ -630,7 +637,8 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                if self.compositepollthread.is_alive():
+                if self.compositepollstarted:
+                    self.compositepollstarted = False
                     self.compositepollthread.stop.set()
             return serverresponse
         except requests.exceptions.ConnectionError:
@@ -659,7 +667,8 @@ class Pedal():
                     # convert string description to a boolean
                     self.owner = (self.owner == "owner")
 
-                    if not self.compositepollthread.is_alive():
+                    if not self.compositepollstarted:
+                        self.compositepollstarted = True
                         self.compositepollthread.start()
                     
                     return SUCCESS_RETURN
@@ -701,13 +710,15 @@ class Pedal():
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
+            print(compositeresp.content[:min(10, len(compositeresp.content))])
+
             if compositeresp.text != NONE_RETURN and compositeresp.content:
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content))
                     # compute new input norm for adding subsequent input
                     self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
                     self.emptycomposite = False
-                    self.splogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
+                    self.slplogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
                 return SUCCESS_RETURN
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
