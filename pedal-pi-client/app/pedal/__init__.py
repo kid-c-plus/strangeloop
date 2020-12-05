@@ -646,7 +646,7 @@ class Pedal():
                     self.sessionid = None
                     self.owner = False
                 else:
-                    self.sessionid, self.owner = serverresponse.split(":")
+                    self.owner, self.sessionid = serverresponse.split(":")
                     # convert string description to a boolean
                     self.owner = (self.owner == "owner")
                     return SUCCESS_RETURN
