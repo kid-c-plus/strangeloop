@@ -710,7 +710,7 @@ class Pedal():
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
-            print(compositeresp.content[:min(10, len(compositeresp.content))])
+            # print(compositeresp.content[:min(10, len(compositeresp.content))])
 
             if compositeresp.text != NONE_RETURN and compositeresp.content:
                 with self.compositelock:
