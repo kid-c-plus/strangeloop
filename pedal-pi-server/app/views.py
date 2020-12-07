@@ -2,7 +2,7 @@ from app import flaskapp, db, models
 
 import flask
 import json
-from string import ascii_letters
+from string import ascii_uppercase
 from datetime import datetime as dt
 from io import BytesIO
 import numpy as np
@@ -34,8 +34,8 @@ NICKNAME_SUB_REGEX = re.compile("[,\n]")
 def generatesessionid(seed=0):
     sessionid = ""
     for _ in range(4):
-        sessionid = ascii_letters[seed % 52] + sessionid
-        seed //= 52
+        sessionid = ascii_uppercase[seed % 26] + sessionid
+        seed //= 26
     return sessionid
 
 # --------------------
@@ -275,10 +275,10 @@ def addloop():
                 else:
                     flaskapp.logger.info("Pedal %s at IP %s added a new loop to session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
                 
-                    loop = models.Loop(pedalmac=mac, index=index, timestamp=dt.now(), npdata=npdata, session=pedal.session)
+                    loop = models.Loop(pedalmac=mac, index=index, timestamp=dt.utcnow(), npdata=npdata, session=pedal.session)
 
                     pedal.session.generatecomposite(fromscratch=False)
-                    pedal.session.lastmodified = dt.now()
+                    pedal.session.lastmodified = dt.utcnow()
                     
                     db.session.commit()
                     return SUCCESS_RETURN
@@ -313,7 +313,7 @@ def removeloop():
                 db.session.commit()
 
                 pedal.session.generatecomposite(fromscratch=True)
-                pedal.session.lastmodified = dt.now()
+                pedal.session.lastmodified = dt.utcnow()
 
                 db.session.commit()
                 
@@ -349,7 +349,7 @@ def getcomposite():
                     except:
                         flaskapp.logger.info("Received invalid timestamp from pedal %s at IP %s" % (mac, flask.request.remote_addr))
                         return NONE_RETURN
-                    timestamp = dt.fromtimestamp(timestamp)
+                    timestamp = dt.utcfromtimestamp(timestamp)
                     if timestamp < pedal.session.lastmodified:
                         return flask.send_file(BytesIO(pedal.session.composite), mimetype="audio/wav")
                     else:

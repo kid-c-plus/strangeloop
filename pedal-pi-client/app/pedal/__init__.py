@@ -714,7 +714,7 @@ class Pedal():
 
             if compositeresp.text != NONE_RETURN and compositeresp.content:
                 with self.compositelock:
-                    self.compositedata = np.load(BytesIO(compositeresp.content))
+                    self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
                     # compute new input norm for adding subsequent input
                     self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
                     self.emptycomposite = False

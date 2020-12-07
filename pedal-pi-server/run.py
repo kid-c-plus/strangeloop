@@ -8,4 +8,5 @@ for table in reversed(meta.sorted_tables):
     db.session.execute(table.delete())
 db.session.commit()
 
-flaskapp.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+if __name__ == "__main__":
+    flaskapp.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False, threaded=True)

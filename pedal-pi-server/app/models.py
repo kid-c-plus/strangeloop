@@ -110,9 +110,9 @@ class Session(db.Model):
         if len(loops):
             compositeaudio = None
             if composite:
-                compositeaudio = np.load(BytesIO(composite))
+                compositeaudio = np.load(BytesIO(composite), allow_pickle=False)
             for loop in loops:
-                loopaudio = np.load(BytesIO(loop.npdata))
+                loopaudio = np.load(BytesIO(loop.npdata), allow_pickle=False)
                 compositeaudio = mergeloops(compositeaudio, loopaudio)
             
             # write returnaudio numpy array to a virtual bytes file, and then save the bytes output
