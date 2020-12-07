@@ -115,7 +115,7 @@ class Pedal():
             Thread.__init__(self)
             self.stop = Event()
             self.pedal = pedal
-            self.timestamp = dt.utcnow().timestamp()
+            self.timestamp = None
 
             self.pedal.slplogger.debug("Initialized composite polling thread")
 
@@ -132,7 +132,7 @@ class Pedal():
                 if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
                     self.timestamp = dt.utcnow().timestamp()
 
-                    self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.fromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
+                    self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.utcfromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
 
             self.pedal.slplogger.debug("Ended composite polling thread")
 
@@ -706,11 +706,11 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
-            self.slplogger.info("Downloading composite for timestamp %s" % dt.fromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None")
+            self.slplogger.info("Downloading composite for timestamp %s" % (dt.utcfromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None"))
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
-            # print(compositeresp.content[:min(10, len(compositeresp.content))])
+            self.slplogger.info("Downloaded new composite: %s" % str(compositeresp.text[:min(10, len(compositeresp.text))]))
 
             if compositeresp.text != NONE_RETURN and compositeresp.content:
                 with self.compositelock:
@@ -718,7 +718,7 @@ class Pedal():
                     # compute new input norm for adding subsequent input
                     self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
                     self.emptycomposite = False
-                    self.slplogger.info("Downloaded new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
+                    self.slplogger.info("Set new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
                 return SUCCESS_RETURN
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
@@ -780,6 +780,7 @@ class Pedal():
                 loopfile = BytesIO()
                 np.save(loopfile, self.loopdata)
 
+                print("loop data is %f kilobytes long" % (len(loopfile.getvalue()) / 1000))
                 # seek start of loopfile so that requests module can send it
                 loopfile.seek(0)
 
@@ -788,7 +789,7 @@ class Pedal():
 
                     serverresponse = requests.post(SERVER_URL + "addloop", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
 
-                    self.slplogger.info("Loop upload returned %s" % serverresponse)
+                    self.slplogger.info("Loop upload %s" % ("successful" if serverresponse == SUCCESS_RETURN else "unsuccessful"))
 
                 except requests.exceptions.ConnectionError:
 
@@ -799,9 +800,6 @@ class Pedal():
                 # ultimately, though, array shape depends on audio sampling rate
                 self.loopdata = np.zeros_like(self.compositedata)
                 self.loopindex = 0
-
-                # apply new composite
-                self.getcomposite()
                 return serverresponse
 
             self.loopdata = np.zeros_like(self.compositedata)
@@ -817,7 +815,7 @@ class Pedal():
     def removeloop(self, index=None):
         with self.compositelock:
             if self.sessionid:
-                if index:
+                if index is not None:
                     if index in self.loops:
                         self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
 
@@ -828,11 +826,10 @@ class Pedal():
                         if serverresponse == SUCCESS_RETURN:
                             self.loops.pop(self.loops.index(index))
                         
-                        self.getcomposite()
                         return serverresponse
                     else:
                         return FAILURE_RETURN
-                elif len(self.loops) > 1:
+                elif len(self.loops) > 0:
                     self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
 
                     serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loops)}).text
@@ -842,7 +839,6 @@ class Pedal():
                     if serverresponse == SUCCESS_RETURN:
                         self.loops.pop(self.loops.index(max(self.loops)))
                     
-                    self.getcomposite()
                     return serverresponse
             else:
                 # can only erase most recent loop if using without web session

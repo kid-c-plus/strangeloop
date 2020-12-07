@@ -10,7 +10,7 @@ flaskapp.config.from_object("config")
 
 handler = logging.StreamHandler(sys.stdout)
 handler.setFormatter(logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+    '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s():%(lineno)d - %(message)s'))
 flaskapp.logger.handlers.clear()
 flaskapp.logger.addHandler(handler)
 flaskapp.logger.setLevel(logging.DEBUG)
