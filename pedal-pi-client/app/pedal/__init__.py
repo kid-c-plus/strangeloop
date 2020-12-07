@@ -129,7 +129,7 @@ class Pedal():
                 time.sleep(COMPOSITE_POLL_INTERVAL)
 
                 # timestamp to determine whether any new data needs to be downloaded
-                if not self.pedal.stop.is_set() and not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
+                if not self.stop.is_set() and not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
                     self.timestamp = dt.utcnow().timestamp()
 
                     self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.utcfromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
@@ -494,11 +494,11 @@ class Pedal():
         # thus, it's not enough merely to track the number of loops
         # each one has a unique id on the server consisting of "MAC address:loop index"
         # the index iterates with each new loop and does not decrease on loop deletion
-        self.loops = []
+        self.loopids = []
 
-        # start process threads
-        self.processaudiothread.start()
-        self.monitorrpithread.start()
+        # loops deleted while offline that will need to be removed from the online
+        # composite if the pedal goes back online
+        self.offlinedelloops = []
 
         # do not start composite polling thread until pedal goes online
         self.compositepollstarted = False
@@ -510,6 +510,10 @@ class Pedal():
 
         if self.webdebug:
             print(self.newsession("rick"))
+
+        # start process threads
+        self.processaudiothread.start()
+        self.monitorrpithread.start()
 
         self.led.turn_off()
 
@@ -532,9 +536,9 @@ class Pedal():
 
         self.slplogger.info("Deinitialized Pedal object")
 
-    # ------------------------------
-    #   Server Interaction Methods
-    # ------------------------------
+    # --------------------------------
+    #   Session Manipulation Methods
+    # --------------------------------
 
     # create new session
     # updates pedal object sessionid & owner variables
@@ -549,19 +553,8 @@ class Pedal():
             
             self.slplogger.info("New session creation returned %s" % serverresponse)
 
-            if serverresponse == FAILURE_RETURN:
-                self.getsession()
+            self.getsession()
 
-            elif serverresponse != NONE_RETURN and serverresponse != FULL_RETURN:
-                self.sessionid = serverresponse 
-                self.owner = True
-                if not self.compositepollstarted:
-                    self.compositepollstarted = True
-                    self.compositepollthread.start()
-                self.compositepollthread.stop.clear()
-
-                return SUCCESS_RETURN
-            
             return serverresponse
         
         except requests.exceptions.ConnectionError:
@@ -581,13 +574,10 @@ class Pedal():
 
             self.slplogger.info("Session end returned %s" % serverresponse)
 
-            if serverresponse == SUCCESS_RETURN:
-                self.sessionid = None
-                self.owner = False
-                self.compositepollthread.stop.set()
-            else:
-                self.getsession()
+            self.getsession()
+
             return serverresponse
+
         except requests.exceptions.ConnectionError:
 
             self.slplogger.info("Session end failed. Unable to connect to server")  
@@ -607,15 +597,8 @@ class Pedal():
 
             self.slplogger.info("Session join returned %s" % serverresponse)
 
-            if serverresponse == FAILURE_RETURN:
-                self.getsession()
-            elif serverresponse == SUCCESS_RETURN:
-                self.sessionid = sessionid
-                self.owner = False
-                if not self.compositepollstarted:
-                    self.compositepollstarted = True
-                    self.compositepollthread.start()
-                self.compositepollthread.stop.clear()
+            self.getsession()
+
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -634,15 +617,17 @@ class Pedal():
 
             self.slplogger.info("Session leave returned %s" % serverresponse)
 
-            if serverresponse == SUCCESS_RETURN:
-                self.sessionid = None
-                self.owner = False
-                self.compositepollthread.stop.set()
+            self.getsession()
+        
             return serverresponse
         except requests.exceptions.ConnectionError:
 
             self.slplogger.info("Leave session failed. Unable to connect to server")  
             return OFFLINE_RETURN
+
+    # ---------------------------------
+    #   Server Database Query Methods
+    # ---------------------------------
 
     # update pedal object sessionid & owner variables (without actually returning them)
     # args:     **kwargs to pass to request GET call
@@ -658,18 +643,14 @@ class Pedal():
 
             if serverresponse != FAILURE_RETURN:
                 if serverresponse == NONE_RETURN:
-                    self.sessionid = None
-                    self.owner = False
+                    self.gooffline()
                 else:
                     self.owner, self.sessionid = serverresponse.split(":")
                     # convert string description to a boolean
                     self.owner = (self.owner == "owner")
 
-                    if not self.compositepollstarted:
-                        self.compositepollstarted = True
-                        self.compositepollthread.start()
-                    self.compositepollthread.stop.clear()
-                    
+                    self.goonline()
+
                     return SUCCESS_RETURN
             return serverresponse 
         except requests.exceptions.ConnectionError:
@@ -677,8 +658,8 @@ class Pedal():
             self.slplogger.info("Session refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
-    # updat pedal object sessionmembers list
-    # return:       server response or OFFLINE_RETURN on failure to connect
+    # update pedal object sessionmembers list
+    # return:   server response or OFFLINE_RETURN on failure to connect
 
     def getmembers(self):
         try:
@@ -688,11 +669,37 @@ class Pedal():
 
             self.slplogger.info("Member list refresh returned %s" % serverresponse)
 
-            if serverresponse == FAILURE_RETURN:
+            if serverresponse in [NONE_RETURN, FAILURE_RETURN]:
                 self.sessionmembers = []
             else:
                 self.sessionmembers = serverresponse.split(",")
                 return SUCCESS_RETURN
+            return serverresponse
+        except requests.exceptions.ConnectionError:
+
+            self.slplogger.info("Member list refresh failed. Unable to connect to server")  
+            return OFFLINE_RETURN
+
+    # update list of loops this pedal has uploaded to online session
+    # return:   server repsonse or OFFLINE_RETURN on failure to connect
+
+    def getloopids(self):
+        try:
+            self.slplogger.info("Refreshing loop id list")
+
+            serverresponse = requests.post(SERVER_URL + "getloopids", data={'mac' : self.mac}).text
+
+            self.slplogger.info("Loop id list refresh returned %s" % serverresponse)
+
+            if serverresponse in [NONE_RETURN, FAILURE_RETURN]:
+                self.loopids = []
+            else:
+                try:
+                    self.loopids = [int(loopid) for loopid in serverresponse.split(",")]
+                    return SUCCESS_RETURN
+                except ValueError:
+                    self.slplogger.error("Server returned invalid loop id data: %s" % serverresponse)
+                    return ERROR_RETURN
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -711,7 +718,7 @@ class Pedal():
 
             self.slplogger.info("Downloaded new composite: %s" % str(compositeresp.text[:min(10, len(compositeresp.text))]))
 
-            if compositeresp.text != NONE_RETURN and compositeresp.content:
+            if compositeresp.text not in [NONE_RETURN, FAILURE_RETURN] and compositeresp.content:
                 with self.compositelock:
                     self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
                     # compute new input norm for adding subsequent input
@@ -766,8 +773,8 @@ class Pedal():
             self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
 
             # provide device-unique loop index
-            loopindex = max(self.loops) + 1 if len(self.loops) else 0
-            self.loops.append(loopindex)
+            loopindex = max(self.loopids) + 1 if len(self.loopids) else 0
+            self.loopids.append(loopindex)
 
             # if pedal in online session, upload json-encoded loop numpy array
             if self.sessionid:
@@ -815,7 +822,7 @@ class Pedal():
         with self.compositelock:
             if self.sessionid:
                 if index is not None:
-                    if index in self.loops:
+                    if index in self.loopids:
                         self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
 
                         serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
@@ -823,20 +830,20 @@ class Pedal():
                         self.slplogger.info("Loop removal returned %s" % serverresponse)
 
                         if serverresponse == SUCCESS_RETURN:
-                            self.loops.pop(self.loops.index(index))
+                            self.loopids.pop(self.loopids.index(index))
                         
                         return serverresponse
                     else:
                         return FAILURE_RETURN
-                elif len(self.loops) > 0:
-                    self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loops), self.sessionid))
+                elif len(self.loopids) > 0:
+                    self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loopids), self.sessionid))
 
-                    serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loops)}).text
+                    serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loopids)}).text
 
                     self.slplogger.info("Loop removal returned %s" % serverresponse)
 
                     if serverresponse == SUCCESS_RETURN:
-                        self.loops.pop(self.loops.index(max(self.loops)))
+                        self.loopids.pop(self.loopids.index(max(self.loopids)))
                     
                     return serverresponse
             else:
@@ -845,9 +852,40 @@ class Pedal():
                     self.slplogger.info("Removing most recent loop from offline session")
 
                     self.compositedata = np.copy(self.lastcomposite)
-                    self.loops.pop(self.loops.index(max(self.loops)))
+                    
+                    delloopid = self.loopids.pop(self.loopids.index(max(self.loopids)))
+                    if not delloopid in self.offlinedelloops:
+                        self.offlinedelloops.append(delloopid)
                 else:
                     self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
 
                 self.emptycomposite = self.emptylastcomposite
                 return SUCCESS_RETURN
+
+    # ------------------
+    #   Helper Methods
+    # ------------------
+
+    # items that need to be completed when pedal enters online session
+
+    def goonline(self):
+        self.getmembers()
+        self.getloopids()
+
+        # delete those loops that are in
+        for deletedloopid in [delloop for delloop in self.offlinedelloops if delloop in self.loopids]:
+            self.removeloop(index=deletedloopid)
+
+        if not self.compositepollstarted:
+            self.compositepollstarted = True
+            self.compositepollthread.start()
+        self.compositepollthread.stop.clear()
+
+    # items that need to be completed when pedal leaves online session
+
+    def gooffline(self):
+        self.sessionid = None
+        self.owner = False
+
+        self.compositepollthread.stop.set()
+
