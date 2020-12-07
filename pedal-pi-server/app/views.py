@@ -49,7 +49,7 @@ def generatesessionid(seed=0):
 # create new session
 # args:     POST: MAC address of pedal requesting new session
 #           POST: nickname of pedal
-# return:   unique session ID, "" if server is full, or None if pedal already in session
+# return:   SUCCESS_RETURN if session created, FULL_RETURN if server is full, or FAILURE_RETURN if pedal already in session
 
 @flaskapp.route("/newsession", methods=["POST"])
 def newsession():
@@ -79,7 +79,7 @@ def newsession():
                 
                 db.session.commit()
                 flaskapp.logger.info("Session %s created for pedal %s at IP %s" % (sessionid, mac, flask.request.remote_addr))
-                return sessionid
+                return SUCCESS_RETURN
             else:
                 flaskapp.logger.info("Pedal %s at IP %s requested session from full server" % (mac, flask.request.remote_addr))
                 return FULL_RETURN
@@ -90,7 +90,7 @@ def newsession():
     
 # end session
 # args:     POST: MAC address of pedal ending session
-# return:   true if session closed, false if requester not session owner or session nonexistent
+# return:   SUCCESS_RETURN if session closed, FAILURE_RETURN if requester not session owner or session nonexistent
 
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
@@ -120,7 +120,7 @@ def endsession():
 # args:     POST: MAC address of pedal joining session
 #           POST: nickname of pedal (optional)
 #           POST: session ID to join
-# return:   true if session joined, false if session nonexistent
+# return:   SUCCESS_RETURN if session joined, FAILURE_RETURN if session nonexistent or pedal already in session
 
 @flaskapp.route("/joinsession", methods=["POST"])
 def joinsession():
@@ -159,7 +159,7 @@ def joinsession():
 # leave session (without ending it)
 # if session is empty after this, it is closed
 # args:     POST: MAC address of pedal ending session
-# return:   true if session left, false if not in any session
+# return:   SUCCESS_RETURN if session left, FAILURE_RETURN if not in any session
 
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
@@ -192,7 +192,7 @@ def leavesession():
 
 # check current session status
 # args:     POST: MAC address of pedal checking session
-# return:   owner/member and current session, or none if unsessioned
+# return:   owner/member and current session, or NONE_RETURN if unsessioned
 
 @flaskapp.route("/getsession", methods=["POST"])
 def getsession():
@@ -216,7 +216,7 @@ def getsession():
 
 # get list of pedal nicknames for given session
 # args:     POST: MAC addres of requesting pedal
-# return:   list of pedals in session, or None if pedal unsessioned
+# return:   list of pedals in session, or NONE_RETURN if pedal unsessioned
 
 @flaskapp.route("/getmembers", methods=["POST"])
 def getmembers():
@@ -229,14 +229,14 @@ def getmembers():
             return ",".join([pedal.nickname for pedal in models.Session.query.get(pedal.sessionid).pedals])
         else:
             flaskapp.logger.info("Received membership list request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
-            return FAILURE_RETURN
+            return NONE_RETURN
     else:
         flaskapp.logger.info("Received membership list request without MAC address from IP %s" % flask.request.remote_addr)
-        return FAILURE_RETURNn
+        return FAILURE_RETURN
 
 # get list of loop ids previously added by this pedal, so that it can continue providing device-unique ids
 # args:     POST: MAC addres of requesting pedal
-# return:   list of loop ids from this pedal in session, or None if pedal unsessioned
+# return:   list of loop ids from this pedal in session, or NONE_RETURN if pedal unsessioned
 
 @flaskapp.route("/getloopids", methods=["POST"])
 def getloopids():
@@ -249,7 +249,7 @@ def getloopids():
             return ",".join([loop.index for loop in models.Session.query.get(pedal.sessionid).loops])
         else:
             flaskapp.logger.info("Received loop list request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
-            return FAILURE_RETURN
+            return NONE_RETURN
     else:
         flaskapp.logger.info("Received loop list request without MAC address from IP %s" % flask.request.remote_addr)
         return FAILURE_RETURN
@@ -295,7 +295,7 @@ def addloop():
 # remove loop from session
 # args:     POST: MAC address of pedal removing loop 
 #           POST: index of loop to remove
-# return:   true if loop removed, false if no loop at index + mac of pedal or if pedal unsessioned
+# return:   SUCCESS_RETURN if loop removed, FAILURE_RETURN if no loop at index + mac of pedal or if pedal unsessioned
 
 @flaskapp.route("/removeloop", methods=["POST"])
 def removeloop():
@@ -332,7 +332,7 @@ def removeloop():
 # this is the method clients use for polling
 # args:     POST: MAC address of pedal requesting composite 
 #           POST: timestamp of last update (can be null)
-# return:   raw data if update necessary, None if no updates since provided timestamp or unsessioned
+# return:   raw data if update necessary, NONE_RETURN if no updates since provided timestamp or unsessioned
 
 @flaskapp.route("/getcomposite", methods=["POST"])
 def getcomposite():
@@ -342,21 +342,22 @@ def getcomposite():
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
             if pedal.session.composite:
-                if timestamp:
+                if timestamp and timestamp != "None":
                     flaskapp.logger.info("Pedal %s at IP %s has requested composite from %s for session %s" % (mac, flask.request.remote_addr, timestamp, pedal.sessionid))
                     try:
                         timestamp = float(timestamp)
                     except:
                         flaskapp.logger.info("Received invalid timestamp from pedal %s at IP %s" % (mac, flask.request.remote_addr))
                         return NONE_RETURN
-                    timestamp = dt.utcfromtimestamp(timestamp)
-                    if timestamp < pedal.session.lastmodified:
-                        return flask.send_file(BytesIO(pedal.session.composite), mimetype="audio/wav")
+                    flaskapp.logger.info("timestamp: %f, pedal.session.lastmodified: %f" % (timestamp, pedal.session.lastmodified.timestamp()))
+                    if timestamp < pedal.session.lastmodified.timestamp():
+                        return flask.Response(pedal.session.composite)
                     else:
                         return NONE_RETURN
                 else:
                     flaskapp.logger.info("Pedal %s at IP %s has requested composite without timestamp for session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
-                    return flask.send_file(BytesIO(pedal.session.composite), mimetype="audio/wav")
+                    flaskapp.logger.info("Sending composite...")
+                    return flask.Response(pedal.session.composite)
             else:
                 flaskapp.logger.info("Pedal %s at IP %s has received empty composite for session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
                 return NONE_RETURN
@@ -366,4 +367,3 @@ def getcomposite():
     else:
         flaskapp.logger.info("Received composite request without MAC address from IP %s" % flask.request.remote_addr)
         return FAILURE_RETURN
-        
