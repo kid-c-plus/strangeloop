@@ -3,7 +3,7 @@ import sys
 import flask
 from .pedal import Pedal
 
-pedal = Pedal(debug=True, loggername="%s.pedal" % __name__)
+pedal = Pedal(debug=True, webdebug=True, loggername="%s.pedal" % __name__)
 
 flaskapp = flask.Flask(__name__)
 flaskapp.config.from_object("config")

@@ -218,7 +218,7 @@ class Pedal():
                     self.pedal.avgsampleperiod = (passtime - self.uptime) / self.monitors
 
                 # determines whether some debug information is printed
-                debugpass = not (self.monitors - 1) % 10000
+                debugpass = not (self.monitors - 1) % 100000
 
                 if self.pedal.monitoring:
 
@@ -321,7 +321,7 @@ class Pedal():
                                         self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
 
                                     if debugpass:
-                                        self.pedal.slplogger.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loops), inputbits))
+                                        self.pedal.slplogger.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loopids), inputbits))
 
                                     # loop length is unbounded. add 10 seconds to loop np array
                                     if self.pedal.loopindex >= len(self.pedal.loopdata):
@@ -505,8 +505,6 @@ class Pedal():
 
         # check initial session membership
         sessionresp = self.getsession(timeout=1)
-        if self.sessionid:
-            self.getmembers()
 
         if self.webdebug:
             print(self.newsession("rick"))
@@ -691,7 +689,7 @@ class Pedal():
 
             self.slplogger.info("Loop id list refresh returned %s" % serverresponse)
 
-            if serverresponse in [NONE_RETURN, FAILURE_RETURN]:
+            if not len(serverresponse) or serverresponse in [NONE_RETURN, FAILURE_RETURN]:
                 self.loopids = []
             else:
                 try:
@@ -699,7 +697,7 @@ class Pedal():
                     return SUCCESS_RETURN
                 except ValueError:
                     self.slplogger.error("Server returned invalid loop id data: %s" % serverresponse)
-                    return ERROR_RETURN
+                    return FAILURE_RETURN
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -712,6 +710,18 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
+            # self.slplogger.info("Downloading test file from AWS...")
+
+            # requests.get("http://badradio.biz/test.dat")
+
+            # self.slplogger.info("Downloaded test file from AWS")
+
+            # self.slplogger.info("Downloading test file from strangeloop server...")
+
+            # requests.get("http://192.168.1.72:5000/download")
+
+            # self.slplogger.info("Downloaded test file from strangeloop server")
+
             self.slplogger.info("Downloading composite for timestamp %s" % (dt.utcfromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None"))
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
@@ -720,12 +730,14 @@ class Pedal():
 
             if compositeresp.text not in [NONE_RETURN, FAILURE_RETURN] and compositeresp.content:
                 with self.compositelock:
-                    self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
-                    # compute new input norm for adding subsequent input
-                    self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
-                    self.emptycomposite = False
-                    self.slplogger.info("Set new composite: %s" % str(self.compositedata[:min(10, len(self.compositedata))]))
-                return SUCCESS_RETURN
+                    try:
+                        self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
+                        # compute new input norm for adding subsequent input
+                        self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
+                        self.emptycomposite = False
+                        return SUCCESS_RETURN
+                    except ValueError:
+                        self.slplogger.error("Server returned invalid composite numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
 
