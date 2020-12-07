@@ -129,7 +129,7 @@ class Pedal():
                 time.sleep(COMPOSITE_POLL_INTERVAL)
 
                 # timestamp to determine whether any new data needs to be downloaded
-                if not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
+                if not self.pedal.stop.is_set() and not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
                     self.timestamp = dt.utcnow().timestamp()
 
                     self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.utcfromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
@@ -558,6 +558,7 @@ class Pedal():
                 if not self.compositepollstarted:
                     self.compositepollstarted = True
                     self.compositepollthread.start()
+                self.compositepollthread.stop.clear()
 
                 return SUCCESS_RETURN
             
@@ -583,9 +584,7 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                if self.compositepollstarted:
-                    self.compositepollstarted = False
-                    self.compositepollthread.stop.set()
+                self.compositepollthread.stop.set()
             else:
                 self.getsession()
             return serverresponse
@@ -616,6 +615,7 @@ class Pedal():
                 if not self.compositepollstarted:
                     self.compositepollstarted = True
                     self.compositepollthread.start()
+                self.compositepollthread.stop.clear()
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -637,9 +637,7 @@ class Pedal():
             if serverresponse == SUCCESS_RETURN:
                 self.sessionid = None
                 self.owner = False
-                if self.compositepollstarted:
-                    self.compositepollstarted = False
-                    self.compositepollthread.stop.set()
+                self.compositepollthread.stop.set()
             return serverresponse
         except requests.exceptions.ConnectionError:
 
@@ -670,6 +668,7 @@ class Pedal():
                     if not self.compositepollstarted:
                         self.compositepollstarted = True
                         self.compositepollthread.start()
+                    self.compositepollthread.stop.clear()
                     
                     return SUCCESS_RETURN
             return serverresponse 
