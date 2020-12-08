@@ -348,7 +348,7 @@ def getcomposite():
                         timestamp = float(timestamp)
                     except:
                         flaskapp.logger.info("Received invalid timestamp from pedal %s at IP %s" % (mac, flask.request.remote_addr))
-                        return NONE_RETURN
+                        return FALSE_RETURN
                     flaskapp.logger.info("timestamp: %f, pedal.session.lastmodified: %f" % (timestamp, pedal.session.lastmodified.timestamp()))
                     if timestamp < pedal.session.lastmodified.timestamp():
                         return flask.Response(pedal.session.composite)
@@ -360,7 +360,7 @@ def getcomposite():
                     return flask.Response(pedal.session.composite)
             else:
                 flaskapp.logger.info("Pedal %s at IP %s has received empty composite for session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
-                return NONE_RETURN
+                return EMPTY_RETURN
         else:
             flaskapp.logger.info("Received composite request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
             return FAILURE_RETURN
