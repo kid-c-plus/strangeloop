@@ -307,18 +307,19 @@ class Pedal():
 
                                 with self.pedal.looplock:
 
-                                    # add merged input and composite, and average timestamps of composite recording and current input
+                                    # add merged input and composite
                                     # write to all indices between the last written one and this one
                                     # which will result in some pretty square sonic waves, but it's better than having composite array
                                     # indices that aren't written to by subsequent loops
                                     if lastcompositeindex <= compositeindex:
-                                        self.pedal.compositedata[lastcompositeindex + 1 : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
+                                        self.pedal.compositedata[lastcompositeindex + 1 : compositeindex + 1]['value'] +=  inputbits - self.pedal.compositenorm
+
                                     # if the composite index looped around since last pass
                                     # even if the compositedata array has changed size since the last pass, and lastcompositeindex is larger
                                     # than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
                                     else:
-                                        self.pedal.slplogger.debug("writing to looped array from %d to %d and from 0 to %d" % (lastcompositeindex + 1, len(self.pedal.compositedata), compositeindex + 1))
-                                        self.pedal.compositedata[lastcompositeindex + 1 : ] = self.pedal.compositedata[ : compositeindex + 1] = (outputbits, (inputtimestamp + self.pedal.compositedata[compositeindex]['timestamp']) / 2)
+                                        self.pedal.compositedata[lastcompositeindex + 1 : ]['value'] += inputbits - self.pedal.compositenorm
+                                        self.pedal.compositedata[ : compositeindex + 1]['value'] += inputbits - self.pedal.compositenorm
 
                                     if debugpass:
                                         self.pedal.slplogger.debug("AudioProcessingThread: recorded audio to loop number %d: %d" % (len(self.pedal.loopids), inputbits))
@@ -710,18 +711,6 @@ class Pedal():
 
     def getcomposite(self, timestamp=None):
         try:
-            # self.slplogger.info("Downloading test file from AWS...")
-
-            # requests.get("http://badradio.biz/test.dat")
-
-            # self.slplogger.info("Downloaded test file from AWS")
-
-            # self.slplogger.info("Downloading test file from strangeloop server...")
-
-            # requests.get("http://192.168.1.72:5000/download")
-
-            # self.slplogger.info("Downloaded test file from strangeloop server")
-
             self.slplogger.info("Downloading composite for timestamp %s" % (dt.utcfromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None"))
 
             compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
@@ -730,14 +719,20 @@ class Pedal():
 
             if compositeresp.text not in [NONE_RETURN, FAILURE_RETURN] and compositeresp.content:
                 with self.compositelock:
-                    try:
-                        self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
-                        # compute new input norm for adding subsequent input
-                        self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
-                        self.emptycomposite = False
+                    if compositeresp.text == EMPTY_RETURN:
+                        if not self.emptycomposite:
+                            self.compositedata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
+                            self.emptycomposite = True
                         return SUCCESS_RETURN
-                    except ValueError:
-                        self.slplogger.error("Server returned invalid composite numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
+                    else:
+                        try:
+                            self.compositedata = np.load(BytesIO(compositeresp.content), allow_pickle=False)
+                            # compute new input norm for adding subsequent input
+                            self.compositenorm = np.mean(self.compositedata[:]['value'], dtype=int)
+                            self.emptycomposite = False
+                            return SUCCESS_RETURN
+                        except ValueError:
+                            self.slplogger.error("Server returned invalid composite numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
             return FAILURE_RETURN
         except requests.exceptions.ConnectionError:
 
