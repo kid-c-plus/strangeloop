@@ -1,4 +1,4 @@
-from app import db
+/rom app import db
 import sqlalchemy
 import numpy as np
 from io import BytesIO
@@ -60,13 +60,16 @@ def mergeloops(composite, loop):
         # which will result in some pretty square sonic waves, but it's better than having composite array
         # indices that aren't written to by subsequent loops
         if lastcompositeindex <= compositeindex:
-            composite[lastcompositeindex + 1 : compositeindex + 1] = (outputvalue, (inputtimestamp + composite[compositeindex]['timestamp']) / 2)
+            composite[lastcompositeindex + 1 : compositeindex + 1]['value'] +=  inputvalue - compositenorm
+
 
         # if the composite index looped around since last pass
         # even if the composite array has changed size since the last pass, and lastcompositeindex is larger
         # than the end of the array, this won't throw an error, it'll just only write the [ : compositeindex + 1] piece
         else:
             composite[lastcompositeindex + 1 : ] = composite[ : compositeindex + 1] = (outputvalue, (inputtimestamp + composite[compositeindex]['timestamp']) / 2)
+            compositedata[lastcompositeindex + 1 : ]['value'] += inputvalue - compositenorm
+            compositedata[ : compositeindex + 1]['value'] += inputvalue - compositenorm
 
         lastcompositeindex = compositeindex
 
@@ -94,8 +97,6 @@ class Session(db.Model):
     # combines loops into composite loop numpy array
     # args:     fromscratch: indicates whether to recombine all loops or just add loops added since last modified (generally, the former is used when deleting loops and the latter when adding)
     def generatecomposite(self, fromscratch):
-        print("generating composite...")
-
         if len(self.loops):
             if self.composite and not fromscratch:
                 self.composite = Session.combineloops([loop for loop in self.loops if loop.timestamp > self.lastmodified], composite=self.composite)
@@ -105,8 +106,6 @@ class Session(db.Model):
         else:
             self.composite = None
             self.lastmodified = None
-
-        print("composite generated")
 
     # actually combines given numpy data arrays using same timestamp-maintaining algorithm as the pedal
     # return:   byte representation of composite array given by numpy.save()
