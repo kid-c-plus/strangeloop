@@ -618,3 +618,30 @@ class Pedal():
             self.loopids.pop(self.loopids.index(max(self.loopids)))
 
             return SUCCESS_RETURN
+
+    # ------------------
+    #   Helper Methods
+    # ------------------
+
+    # items that need to be completed when pedal enters online session
+
+    def goonline(self):
+        self.getmembers()
+        self.getloopids()
+
+        # delete those loops that are in
+        for deletedloopid in [delloop for delloop in self.offlinedelloops if delloop in self.loopids]:
+            self.removeloop(index=deletedloopid)
+
+        if not self.compositepollstarted:
+            self.compositepollstarted = True
+            self.compositepollthread.start()
+        self.compositepollthread.stop.clear()
+
+    # items that need to be completed when pedal leaves online session
+
+    def gooffline(self):
+        self.sessionid = None
+        self.owner = False
+
+        self.compositepollthread.stop.set()
