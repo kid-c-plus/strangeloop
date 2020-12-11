@@ -102,11 +102,19 @@ PEDAL_KW_DEFAULTS = {
 # ------------------------------------------------------------------------------
 
 class Pedal():
+    
+    # ----------------------------------------------------------------
+    #   ProcessLoggingThread - Thread superclass that reads input
+    #                          from process queue and logs it to the
+    #                          pedal logger in a safe way
+    # ----------------------------------------------------------------
 
-    # --------------------------------------------------------------------
+
+    # ----------------------------------------------------------------
     #   CompositePollingThread - Thread superclass that periodically 
-    #   polls strangeloop server for new additions to the composite loop
-    # --------------------------------------------------------------------
+    #                            polls strangeloop server for new 
+    #                            additions to the composite loop
+    # ----------------------------------------------------------------
 
     class CompositePollingThread(threading.Thread):
 
