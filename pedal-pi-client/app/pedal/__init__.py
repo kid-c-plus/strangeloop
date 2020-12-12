@@ -10,8 +10,9 @@ import signal
 from datetime import datetime as dt
 from io import BytesIO
 import numpy as np
-from . import rpi, audioprocessor
 import logging
+
+from . import rpi, audioprocessor
 
 import sys
 sys.path.append("/opt/strangeloop/common")
@@ -108,6 +109,24 @@ class Pedal():
     #                          from process queue and logs it to the
     #                          pedal logger in a safe way
     # ----------------------------------------------------------------
+
+    class ProcessLoggingThread(threading.Thread):
+        def __init__(self, pedal, logqueue):
+            threading.Thread.__init__(self)
+            self.pedal = pedal
+            self.logqueue = logqueue
+
+            self.pedal.slplogger.debug("Initialized process logging thread")
+
+        def run(self):
+        
+            self.pedal.slplogger.debug("Started process logging thread")
+
+            while self.pedal.running or not self.logqueue.empty():
+
+                # block until messagae is avaliable
+                level, message = self.logqueue.get()
+                self.pedal.slplogger.log(getattr(logging, level), message)
 
 
     # ----------------------------------------------------------------
@@ -263,10 +282,13 @@ class Pedal():
         self.audiocontrolqueue      = multiprocessing.Queue()
         self.audiocompositequeue    = multiprocessing.Queue()
         self.audioloopqueue         = multiprocessing.Queue()
+        self.audiologqueue          = multiprocessing.Queue()
 
         # initialize process threads
+        self.processlogthread       = Pedal.ProcessLoggingThread(pedal=self, logqueue=self.audiologqueue)
         self.compositepollthread    = Pedal.CompositePollingThread(pedal=self)
         self.monitorrpithread       = Pedal.RPiMonitoringThread(pedal=self)
+        self.audioprocess           = multiprocessing.Process(target=audioprocessor.run, args=(self.audiocontrolqueue, self.audiocompositequeue, self.audioloopqueue, self.audiologqueue, kwargs))
 
         # process thread flags
         self.running = True
@@ -286,29 +308,33 @@ class Pedal():
         # do not start composite polling thread until pedal goes online
         self.compositepollstarted = False
 
-        # check initial session membership
-        sessionresp = self.getsession(timeout=1)
+        self.led.turn_off()
 
-        if self.webdebug:
-            print(self.newsession("rick"))
+        self.slplogger.info("Initialized Pedal object")
+
+    # begin pedal threads
+
+    def run(self):    
 
         # start process threads
+        self.processlogthread.start()
         self.monitorrpithread.start()
 
         # child process will inherit "ignore SIGINT", so that it can be exited gracefully from parent process
         # from: https://stackoverflow.com/questions/11312525/catch-ctrlc-sigint-and-exit-multiprocesses-gracefully-in-python
-        original_sigint_handler = signal.signal(signal.SIGINT, signal.SIG_IGN)
+        originalsiginthandler = signal.signal(signal.SIGINT, signal.SIG_IGN)
 
         # initialize audio processor and necessary queues, and then run
-        self.audioprocess           = multiprocessing.Process(target=audioprocessor.run, args=(self.audiocontrolqueue, self.audiocompositequeue, self.audioloopqueue, kwargs))
         self.audioprocess.start()
 
         # restore previous SIGINT handler
-        signal.signal(signal.SIGINT, original_sigint_handler)        
+        signal.signal(signal.SIGINT, originalsiginthandler)        
 
-        self.led.turn_off()
+        # check initial session membership
+        sessionresp = self.getsession(timeout=1)
 
-        self.slplogger.info("Initialized Pedal object")
+        if self.webdebug:
+            self.slplogger.info("Creating new session: %s" % self.newsession("rick"))
 
     # destructor method
     # set end flag so threads can exit gracefully
@@ -568,7 +594,6 @@ class Pedal():
             loopfile = BytesIO()
             np.save(loopfile, loopdata)
 
-            print("loop data is %f kilobytes long" % (len(loopfile.getvalue()) / 1000))
             # seek start of loopfile so that requests module can send it
             loopfile.seek(0)
 
@@ -609,7 +634,7 @@ class Pedal():
                     return serverresponse
                 else:
                     return FAILURE_RETURN
-            elif len(self.loopids) > 0:
+            elif len(self.loopids):
                 self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loopids), self.sessionid))
 
                 serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loopids)}).text
@@ -623,7 +648,8 @@ class Pedal():
         else:
             self.slplogger.info("Removing loop from offline session...")
             self.audiocontrolqueue.put(audioprocessor.Control.RemoveLoop)
-            self.loopids.pop(self.loopids.index(max(self.loopids)))
+            if len(self.loopids):
+                self.loopids.pop(self.loopids.index(max(self.loopids)))
 
             return SUCCESS_RETURN
 

@@ -25,19 +25,18 @@ class Control(str, Enum):
     ToggleRecording     = "recording"
     RemoveLoop          = "removeloop"
 
-# --------------------------------------------------------------------
-#   AudioProcessor: Class designed to run as a separate process
-#                   tasked with processing and recording audio input
-# --------------------------------------------------------------------
-
-# args:     controlqueue:       FIFO queue containing pedal state change information
-#           compositequeue:     FIFO queue containing downloaded composite numpy arrays
-#           loopqueue:          FIFO queue used by AudioProcessor to export recorded loops
+# ----------------------------------------------------------------------------------------------------
+#   run:    process tasked with processing and recording audio input
+#   args:   controlqueue:       FIFO inbound queue containing pedal state change information
+#           compositequeue:     FIFO inbound queue containing downloaded composite numpy arrays
+#           loopqueue:          FIFO outbound queue used by AudioProcessor to export recorded loops
+#           logqueue:           FIFO outbound queue to pass logs to parent Pedal process
 #           kwargs:             Dictionary containing AudioProcessor settings passed to Pedal object
+# ----------------------------------------------------------------------------------------------------
 
-def run(controlqueue, compositequeue, loopqueue, kwargs):
+def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
 
-    print("AudioProcessor - Starting execution...")
+    logqueue.put(("INFO", "AudioProcessor - Starting execution..."))
 
     # simple helper method to append whitespace to array
     # return: new array with whitespace appended
@@ -45,17 +44,14 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
         return np.append(arr, np.zeros((int(ARRAY_SIZE_SEC / avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)) if arr is not None else np.zeros((int(ARRAY_SIZE_SEC / avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE) 
 
     # simple helper to read a single number out of a file of space-separated numbers
-    def readnum(fileobj):
-        retnum = ""
+    def readitem(fileobj):
+        retitem = ""
         while True:
             char = fileobj.read(1)
             if not char or char == "" or char == " ":
                 break
-            retnum += char
-        try:
-            return int(retnum)
-        except ValueError:
-            return 0
+            retitem += char
+        return retitem
 
 
     # gets all queued commands and applies them to status dict
@@ -80,7 +76,7 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
     #               (only used when composite is empty. otherwise, all loop timestamp data
     #               is stored relative to the compositepassstart timestamp)
     # monitors: used for diagnostics & calculating avgsampleperiod
-    compositeindex = lastcompositeindex = compositepassstart = compositenorm = loopindex = looprecstart = monitors = 0
+    compositeindex = lastcompositeindex = compositepassstart = compositenorm = loopindex = looprecstart = monitors = passtime = 0
 
     avgsampleperiod = (1 / 44100.0)
     uptime = time.time()
@@ -91,6 +87,14 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
 
     emptycomposite = emptylastcomposite = True
 
+    audioinfileobj = None    
+    if kwargs.get('audioloadinput', False) and kwargs.get('audioinfile', False):
+        audioinfileobj = open(kwargs['audioinfile'])
+
+    audiooutfileobj = None    
+    if kwargs.get('audiosaveoutput', False) and kwargs.get('audiooutfile', False):
+        audiooutfileobj = open(kwargs['audiooutfile'], mode="w")
+    
     updatestatus(status, controlqueue)
 
     while status['running']:
@@ -114,7 +118,7 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
 
         # a new loop has been recorded, submit it to the output queue
         if loopindex and not status['recording']:
-            print("AudioProcessor - Ending loop...")
+            logqueue.put(("INFO", "AudioProcessor - Ending loop..."))
 
             loopqueue.put(loopdata[:loopindex])
     
@@ -129,21 +133,26 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
             loopdata = np.zeros_like(compositedata)
 
         elif not loopindex and status['recording']:
-            print("AudioProcessor - Starting loop...")
+            logqueue.put(("INFO", "AudioProcessor - Starting loop..."))
     
             lastcompositedata = np.copy(compositedata)
             emptylastcomposite = emptycomposite
 
         # it's kind of an outlier in the Control enum but this is the easiest way to delete a loop offline
         if status['removeloop'] and not status['recording']:
-            print("AudioProcessor - Removing loop...")
+            logqueue.put(("INFO", "AudioProcessor - Removing loop..."))
 
             compositedata = lastcompositedata
             emptycomposite = emptylastcomposite
             status['removeloop'] = False
 
-        # current timestamp
-        passtime = time.time()
+        # need deterministic timestamps for unit testing
+        if audioinfileobj:
+            passtime += 1
+
+        else:
+            # current timestamp
+            passtime = time.time()
 
         # used for diagnostics (specifically calculating sampling frequency)
         monitors += 1
@@ -155,19 +164,20 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
         # determines whether some debug information is printed
         debugpass = not (monitors - 1) % 100000
 
-        audioinfileobj = None    
-        if kwargs.get('audioloadinput', False) and kwargs.get('audioinfile', False):
-            audioinfileobj = open(kwargs['audioinfile'])
-
-        audiooutfileobj = None    
-        if kwargs.get('audiosaveoutput', False) and kwargs.get('audiooutfile', False):
-            audiooutfileobj = open(kwargs['audiooutfile'], mode="w")
-        
         if status['monitoring']:
 
             # read from input file (for unit testing)
             if audioinfileobj:
-                inputbits = readnum(audioinfileobj)
+                inputcommand = readitem(audioinfileobj)
+                if inputcommand.isdigit():
+                    inputbits = int(inputcommand)
+                else: 
+                    # eof
+                    if not inputcommand:
+                        status['running'] = False
+                    elif inputcommand in status:
+                        status[inputcommand] = not status[inputcommand]
+                    continue
 
             # read from AUX input
             else:
@@ -179,7 +189,8 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
             if emptycomposite:
 
                 # reset composite-related variables
-                compositeindex = lastcompositeindex = compositepassstart = 0
+                if compositeindex or lastcompositeindex or compositepassstart:
+                    compositeindex = lastcompositeindex = compositepassstart = 0
 
                 if status['recording']:
 
@@ -208,7 +219,8 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
                 else:
 
                     # reset first loop record variable
-                    looprecstart = 0
+                    if looprecstart:
+                        looprecstart = 0
 
             else:
 
@@ -278,5 +290,9 @@ def run(controlqueue, compositequeue, loopqueue, kwargs):
         updatestatus(status, controlqueue)
 
     # Deinitialization actions
-    print("Monitoring frequency: %f" % (monitors / (time.time() - uptime)))
+    logqueue.put(("INFO", "Monitoring frequency: %f" % (monitors / (time.time() - uptime))))
+    if audioinfileobj:
+        audioinfileobj.close()
+    if audiooutfileobj:
+        audiooutfileobj.close()
 
