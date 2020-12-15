@@ -11,7 +11,7 @@ from common import *
 # -------------
 
 # directory containing static web GUI resource files
-STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static"
+STATIC_DIR = "/Users/rick/Documents/Other/strangeloop/pedal-pi-client/app/static/dist"
 
 # --------------------------------
 #   Client-Server Endpoints

@@ -295,11 +295,8 @@ class Pedal():
         self.monitoring = False
         self.recording = False
 
-        # when online, the user can delete loops by index
-        # thus, it's not enough merely to track the number of loops
-        # each one has a unique id on the server consisting of "MAC address:loop index"
-        # the index iterates with each new loop and does not decrease on loop deletion
-        self.loopids = []
+        # store a local dict of all loops made on this pedal, so that they can be uploaded individually
+        self.loops = {}
 
         # loops deleted while offline that will need to be removed from the online
         # composite if the pedal goes back online
@@ -498,30 +495,57 @@ class Pedal():
             self.slplogger.info("Member list refresh failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
-    # update list of loops this pedal has uploaded to online session
+    # reconcile online loop collection with offline activity
     # return:   server repsonse or OFFLINE_RETURN on failure to connect
 
-    def getloopids(self):
+    def updateloops(self):
         try:
-            self.slplogger.info("Refreshing loop id list")
+            self.slplogger.info("Reconciling online loops with offline loops")
 
             serverresponse = requests.post(SERVER_URL + "getloopids", data={'mac' : self.mac}).text
 
             self.slplogger.info("Loop id list refresh returned %s" % serverresponse)
 
-            if not len(serverresponse) or serverresponse in [NONE_RETURN, FAILURE_RETURN]:
-                self.loopids = []
-            else:
+            # delete and upload all deleted and recorded offline loops
+            loopstodelete = self.offlinedelloops
+
+            # make sure the loops are uploaded in the order they were recorded,
+            # so that the base loop stays the same
+            loopstoupload = sorted(list(self.loops.keys()))
+
+            if len(serverresponse) and serverresponse not in [NONE_RETURN, FAILURE_RETURN]:
                 try:
-                    self.loopids = [int(loopid) for loopid in serverresponse.split(",")]
-                    return SUCCESS_RETURN
+                    onlineloopindices = [int(loopid) for loopid in serverresponse.split(",")]
+                    loopstodelete = [loopindex for loopindex in loopstodelete if loopindex in onlineloopindices]
+                    # upload loops not in online session, and loop indices that have been deleted and rerecorded offline
+                    loopstoupload = [loopindex for loopindex in loopstoupload if (loopindex in loopstodelete or loopindex not in onlineloopindices)]
+
+                    # download online loops not present in offline dict
+                    for loopindex in [oli for oli in onlineloopindices if oli not in self.loops and oli not in loopstodelete]:
+                        self.getloop(loopindex)
+
                 except ValueError:
-                    self.slplogger.error("Server returned invalid loop id data: %s" % serverresponse)
-                    return FAILURE_RETURN
-            return serverresponse
+                    self.slplogger.error("Invalid loop id data from server")
+
+            updateresponse = SUCCESS_RETURN
+    
+            # delete loops
+            for deleteindex in loopstodelete:
+                if self.removeloop(deleteindex) != SUCCESS_RETURN:
+                    updateresponse = FAILURE_RETURN
+
+            # upload loops
+            for uploadindex in loopstoupload:
+                if self.uploadloop(uploadindex) != SUCCESS_RETURN:
+                    updateresponse = FAILURE_RETURN
+
+            self.offlinedelloops = []
+
+            return updateresponse
+
         except requests.exceptions.ConnectionError:
 
-            self.slplogger.info("Member list refresh failed. Unable to connect to server")  
+            self.slplogger.info("Loop reconciliation failed. Unable to connect to server")  
             return OFFLINE_RETURN
 
     # requests current composite from server 
@@ -532,18 +556,17 @@ class Pedal():
         try:
             self.slplogger.info("Downloading composite for timestamp %s" % (dt.utcfromtimestamp(timestamp).strftime("%Y-%m-%d-%H:%M:%S") if timestamp else "None"))
 
-            compositeresp = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
+            serverresponse = requests.post(SERVER_URL + "getcomposite", data={'mac' : self.mac, 'timestamp' : timestamp})
 
-            self.slplogger.info("Downloaded new composite: %s" % str(compositeresp.text[:min(10, len(compositeresp.text))]))
+            self.slplogger.info("Downloaded new composite: %s" % str(serverresponse.text[:min(10, len(serverresponse.text))]))
 
-            if compositeresp.text not in [NONE_RETURN, FAILURE_RETURN] and compositeresp.content:
-                if compositeresp.text == EMPTY_RETURN:
+            if serverresponse.text not in [NONE_RETURN, FAILURE_RETURN] and serverresponse.content:
+                if serverresponse.text == EMPTY_RETURN:
                     self.audiocompositequeue.put(None)
                     return SUCCESS_RETURN
                 else:
                     try:
-                        self.audiocompositequeue.put(np.load(BytesIO(compositeresp.content), allow_pickle=False))
-                        # compute new input norm for adding subsequent input
+                        self.audiocompositequeue.put(np.load(BytesIO(serverresponse.content), allow_pickle=False))
                         return SUCCESS_RETURN
                     except ValueError:
                         self.slplogger.error("Server returned invalid composite numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
@@ -578,14 +601,64 @@ class Pedal():
 
         self.audiocontrolqueue.put(audioprocessor.Control.ToggleRecording)
 
+        # get loop from audioprocessor object
         loopdata = self.audioloopqueue.get()
 
-        # provide device-unique loop index
-        loopindex = max(self.loopids) + 1 if len(self.loopids) else 0
-        self.loopids.append(loopindex)
+        # insert loop into offline loops dict
+        loopindex = 1
+        if len(self.loops):
+            loopindex = max(list(self.loops.keys())) + 1
+        self.loops[loopindex] = loopdata
 
         # if pedal in online session, upload json-encoded loop numpy array
         if self.sessionid:
+
+            return self.uploadloop(loopdata, loopindex)
+
+        return SUCCESS_RETURN
+
+    # remove loop from composite
+    # in offline session, only most recent loop is removeable
+    # args:     index:  device-unique id for loop to be removed (online only)
+    # return:   server response (or SUCCESS_RETURN for offline session)
+
+    def removeloop(self, index=None):
+        if self.sessionid:
+            if index == None:
+                index = max(list(self.loops.keys()))
+
+            if index in self.loops:
+                self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
+
+                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
+                
+                self.slplogger.info("Loop removal returned %s" % serverresponse)
+
+                if serverresponse == SUCCESS_RETURN:
+                    self.loops.pop(index)
+                
+                return serverresponse
+            else:
+                return FAILURE_RETURN
+
+        else:
+            self.slplogger.info("Removing loop from offline session...")
+
+            self.audiocontrolqueue.put(audioprocessor.Control.RemoveLoop)
+
+            if index in self.loops:
+                self.offlinedelloops.append(index)
+                self.loops.pop(index)
+
+            return SUCCESS_RETURN
+
+    # submit given loop array to server
+
+    def uploadloop(self, loopindex):
+    
+        if self.sessionid:
+
+            loopdata = self.loops[loopindex]
 
             # sort loop array by timestamps before uploading
             loopdata.sort(order="timestamp")
@@ -598,7 +671,7 @@ class Pedal():
             loopfile.seek(0)
 
             try:
-                self.slplogger.info("Uploading loop %d to session %s" % (loopindex, self.sessionid if self.sessionid else None))
+                self.slplogger.info("Uploading loop %d to session %s" % (loopindex, self.sessionid))
 
                 serverresponse = requests.post(SERVER_URL + "addloop", data={'mac' : self.mac, 'index' : loopindex}, files={'npdata' : loopfile}).text
 
@@ -611,47 +684,32 @@ class Pedal():
 
             return serverresponse
 
-        return SUCCESS_RETURN
-
-    # remove loop from composite
-    # in offline session, only most recent loop is removeable
-    # args:     index:  device-unique id for loop to be removed (online only)
-    # return:   server response (or SUCCESS_RETURN for offline session)
-
-    def removeloop(self, index=None):
-        if self.sessionid:
-            if index is not None:
-                if index in self.loopids:
-                    self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
-
-                    serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
-                    
-                    self.slplogger.info("Loop removal returned %s" % serverresponse)
-
-                    if serverresponse == SUCCESS_RETURN:
-                        self.loopids.pop(self.loopids.index(index))
-                    
-                    return serverresponse
-                else:
-                    return FAILURE_RETURN
-            elif len(self.loopids):
-                self.slplogger.info("Removing most recent loop %d from session %s" % (max(self.loopids), self.sessionid))
-
-                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : max(self.loopids)}).text
-
-                self.slplogger.info("Loop removal returned %s" % serverresponse)
-
-                if serverresponse == SUCCESS_RETURN:
-                    self.loopids.pop(self.loopids.index(max(self.loopids)))
-                
-                return serverresponse
         else:
-            self.slplogger.info("Removing loop from offline session...")
-            self.audiocontrolqueue.put(audioprocessor.Control.RemoveLoop)
-            if len(self.loopids):
-                self.loopids.pop(self.loopids.index(max(self.loopids)))
+            return FAILURE_RETURN
 
-            return SUCCESS_RETURN
+    # requests a given loop from the server and updates offline loop dict
+    # args:     loopindex: index of loop to download
+    # return:   SUCCESS_RETURN if downloaded, FAILURE_RETURN if loop index not found, OFFLINE_RETURN on failure to connect
+
+    def getloop(self, loopindex):
+        try:
+            self.slplogger.info("Downloading loop %d" % loopindex)
+
+            serverresponse = requests.post(SERVER_URL + "getloop", data={'mac' : self.mac, 'index' : loopindex})
+
+            self.slplogger.info("Downloaded loop %d: %s" % (loopindex, str(serverresponse.text[:min(10, len(serverresponse.text))])))
+
+            if serverresponse.text not in [NONE_RETURN, FAILURE_RETURN] and serverresponse.content:
+                try:
+                    self.loops[loopindex] = np.load(BytesIO(serverresponse.content), allow_pickle=False)
+                    return SUCCESS_RETURN
+                except ValueError:
+                    self.slplogger.error("Server returned invalid loop numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
+            return FAILURE_RETURN
+        except requests.exceptions.ConnectionError:
+
+            self.slplogger.info("Loop download failed. Unable to connect to server")  
+            return 
 
     # ------------------
     #   Helper Methods
@@ -661,11 +719,8 @@ class Pedal():
 
     def goonline(self):
         self.getmembers()
-        self.getloopids()
 
-        # delete those loops that are in
-        for deletedloopid in [delloop for delloop in self.offlinedelloops if delloop in self.loopids]:
-            self.removeloop(index=deletedloopid)
+        self.updateloops()
 
         if not self.compositepollstarted:
             self.compositepollstarted = True
