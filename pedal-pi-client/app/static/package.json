@@ -1,0 +1,27 @@
+{
+  "name": "strangeloop",
+  "version": "1.0.0",
+  "description": "React frontend GUI for strangeloop",
+  "main": "index.js",
+  "scripts": {
+    "build": "webpack --progress --config webpack.config.js",
+    "dev-build": "webpack --progress -d --config webpack.config.js",
+    "watch": "webpack --progress -d --config webpack.config.js --watch"
+  },
+  "repository": {
+    "type": "git",
+    "url": "  git clone https://github.com/pangloss/vim-javascript.git ~/.vim/pack/vim-javascript/start/vim-javascript"
+  },
+  "author": "Eric Lewis",
+  "license": "ISC",
+  "devDependencies": {
+    "@babel/core": "^7.12.10",
+    "@babel/preset-env": "^7.12.10",
+    "@babel/preset-react": "^7.12.10",
+    "babel-loader": "^8.2.2",
+    "react": "^17.0.1",
+    "react-dom": "^17.0.1",
+    "webpack": "^5.10.1",
+    "webpack-cli": "^4.2.0"
+  }
+}

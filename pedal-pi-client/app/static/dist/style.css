@@ -1,0 +1,31 @@
+body {
+
+    color:          #99E6FF; 
+    border-color:   #3D3D5C;
+
+    display:    grid;
+    grid-template-areas:
+        "logo"
+        "control"
+    grid-template-rows: 10% 90%;
+}
+
+
+#logobox {
+    
+    display:    flex;
+    grid-area:  logo;
+
+    vertical-align:  middle;
+    justify-content: center;
+
+}
+
+#logo {
+
+    width:  30%;
+    height: auto;
+
+}
+
+
