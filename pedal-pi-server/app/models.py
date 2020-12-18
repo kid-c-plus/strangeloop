@@ -1,4 +1,4 @@
-/rom app import db
+from app import db
 import sqlalchemy
 import numpy as np
 from io import BytesIO
