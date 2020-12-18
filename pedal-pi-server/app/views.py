@@ -192,7 +192,7 @@ def leavesession():
 
 # check current session status
 # args:     POST: MAC address of pedal checking session
-# return:   owner/member and current session, or NONE_RETURN if unsessioned
+# return:   current session and owner/member, or NONE_RETURN if unsessioned
 
 @flaskapp.route("/getsession", methods=["POST"])
 def getsession():
@@ -202,7 +202,7 @@ def getsession():
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
             flaskapp.logger.info("Received get session request from pedal %s at IP %s in session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
-            return "%s:%s" % ("owner" if pedal.session.ownermac == mac else "member", pedal.sessionid)
+            return "%s:%s" % (pedal.sessionid, "owner" if pedal.session.ownermac == mac else "member")
         else:
             flaskapp.logger.info("Received get session request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
             return NONE_RETURN
@@ -290,6 +290,33 @@ def addloop():
             return FAILURE_RETURN
     else:
         flaskapp.logger.info("Received incomplete add loop request from IP %s: MAC? %r, index? %r, raw data? %r" % (flask.request.remote_addr, bool(mac), bool(index), bool(npdata)))
+        return FAILURE_RETURN
+
+# return specified loop
+# args:     POST: MAC address of pedal removing loop 
+#           POST: index of loop to remove
+# return:   loop data on success, FAILURE_RETURN if no loop at index + mac of pedal or if pedal unsessioned
+
+@flaskapp.route("/getloop", methods=["POST"])
+def getloop():
+    mac, index = [flask.request.values.get(key) for key in ('mac', 'index')]
+    if mac and MAC_REGEX.fullmatch(str(mac)) and index:
+        mac, index = [str(val) for val in (mac, index)]
+        pedal = models.Pedal.query.get(mac)
+        if pedal and pedal.session:
+            loop = models.Loop.query.get((mac, index))
+            if loop:
+                flaskapp.logger.info("Pedal %s at IP %s downloaded loop %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
+
+                return flask.Response(loop.npdata)
+            else:
+                flaskapp.logger.info("Pedal %s at IP %s attempted to download nonexistent loop %s from session %s" % (mac, flask.request.remote_addr, index, pedal.sessionid))
+                return FAILURE_RETURN
+        else:
+            flaskapp.logger.info("Received download loop request from unsessioned pedal %s at IP %s" % (mac, flask.request.remote_addr))
+            return FAILURE_RETURN
+    else:
+        flaskapp.logger.info("Received incomplete download loop request from IP %s: MAC? %r, index? %r" % (flask.request.remote_addr, bool(mac), bool(index)))
         return FAILURE_RETURN
 
 # remove loop from session

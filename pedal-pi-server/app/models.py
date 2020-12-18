@@ -36,9 +36,9 @@ class Session(db.Model):
     def generatecomposite(self, fromscratch):
         if len(self.loops):
             if self.composite and not fromscratch:
-                self.composite = Session.combineloops([loop for loop in self.loops if loop.timestamp > self.lastmodified], composite=self.composite)
+                self.composite = combineloops([loop for loop in self.loops if loop.timestamp > self.lastmodified], composite=self.composite)
             else:
-                self.composite = Session.combineloops(self.loops)
+                self.composite = combineloops(self.loops)
             self.lastmodified = max([loop.timestamp for loop in self.loops])
         else:
             self.composite = None
