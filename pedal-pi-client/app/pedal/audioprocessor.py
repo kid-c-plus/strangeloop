@@ -1,6 +1,11 @@
+# ----------------------------------------------------------------------------------------------------------------------------
+#   audioprocessor - target method for discrete process tasked with audio input and output. designed for maximum thoroughput
+# ----------------------------------------------------------------------------------------------------------------------------
+
 import numpy as np
 from enum import Enum
 import time
+import queue
 
 from . import rpi, vrpi
 
@@ -18,6 +23,7 @@ LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
 # add 10 seconds worth of loop time to the array each time its length is met
 ARRAY_SIZE_SEC = 10
 
+# array of default keyword arguments passed to run method
 AP_KW_DEFAULTS = {
     'virtualize'    : False,
     'vqueues'       : {
@@ -56,15 +62,9 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
     def extendarray(arr, avgsampleperiod=(1 / 44100.0)):
         return np.append(arr, np.zeros((int(ARRAY_SIZE_SEC / avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)) if arr is not None else np.zeros((int(ARRAY_SIZE_SEC / avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE) 
 
-    # gets all queued commands and applies them to status dict
-    def updatestatus(status, queue):
-        while not queue.empty():
-            statuschange = queue.get()
-            status[statuschange.value] = not status[statuschange.value]
-
-    if args.virtualize:
-        audioin     = vrpi.SPI(args.vqueues['audioin'])
-        audioout    = vrpi.PWM(args.vqueues['audioout'])
+    if args['virtualize']:
+        audioin     = vrpi.SPI(args['vqueues']['audioin'])
+        audioout    = vrpi.PWM(args['vqueues']['audioout'])
 
     else:
         audioin        = rpi.SPI()
@@ -92,8 +92,6 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
 
     emptycomposite = True
 
-    updatestatus(status, controlqueue)
-
     while status['running']:
 
         # IPC tasks
@@ -106,34 +104,55 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
             if compositedata is None:
                 compositedata = extendarray(None)
                 emptycomposite = True
-                looprecstart = 0
+                looprecstart = compositepass = 0
             else:
                 emptycomposite = False
             
             # recalculate compositenorm
             compositenorm = np.mean(compositedata[:]['value'], dtype=int)
 
-        # a new loop has been recorded, submit it to the output queue
-        if loopindex and not status['recording']:
-            logqueue.put(("INFO", "AudioProcessor - Ending loop..."))
+        while not controlqueue.empty():
+            statuschange = controlqueue.get()
 
-            loopqueue.put(loopdata[:loopindex])
-    
-            if emptycomposite:
-                compositedata = compositedata[:loopindex]
-                emptycomposite = False
+            # these need to be in the loop, so that each signal is responded even if there are multiple in the queue
+            # otherwise, two "ToggleLoop" commands would cancel each other out
 
-            # recalculate compositenorm
-            compositenorm = np.mean(compositedata[:]['value'], dtype=int)
+            if statuschange == Control.ToggleRecording:
+                # a new loop has been recorded, submit it to the output queue
+                if status['recording']:
+                    logqueue.put(("INFO", "AudioProcessor - Ending loop..."))
 
-            loopindex = 0
-            loopdata = np.zeros_like(compositedata)
+                    loopqueue.put(loopdata[:loopindex])
+            
+                    if emptycomposite:
+                        compositedata = compositedata[:loopindex]
+                        emptycomposite = False
 
-        elif not loopindex and status['recording']:
-            logqueue.put(("INFO", "AudioProcessor - Starting loop..."))
-    
-        # need deterministic timestamps for unit testing
-        if args.itertimestamp:
+                    if args['virtualize']:
+                        logqueue.put(("INFO", "NEW COMPOSITE LENGTH: %d" % len(compositedata)))
+
+                    # recalculate compositenorm
+                    compositenorm = np.mean(compositedata[:]['value'], dtype=int)
+
+                    loopindex = 0
+                    loopdata = np.zeros_like(compositedata)
+
+                else:
+                    logqueue.put(("INFO", "AudioProcessor - Starting loop..."))
+                    # reset first loop record variable
+                    looprecstart = 0
+
+            status[statuschange.value] = not status[statuschange.value]
+
+            # avoid executing another I/O round if running status has been updated
+            if not status['running']:
+                break
+
+        if not status['running']:
+            break
+            
+            # need deterministic timestamps for unit testing
+        if args['itertimestamp']:
             passtime += 1
 
         else:
@@ -148,13 +167,17 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
             avgsampleperiod = (passtime - uptime) / monitors
 
         # determines whether some debug information is printed
-        debugpass = not (monitors - 1) % 100000
+        debugpass = not (monitors - 1) % 10000
 
         if status['monitoring']:
-
+   
             try:
                 inputbits = audioin.read()
+                if debugpass:
+                    logqueue.put(("INFO", "read from queue"))
             except queue.Empty:
+                if debugpass:
+                    logqueue.put(("INFO", "exhausted queue"))
                 break
 
             outputbits = inputbits
@@ -175,7 +198,7 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
                     looprectimestamp = passtime - looprecstart
 
                     # don't record past maximum loop length
-                    if looprectimestamp < MAX_LOOP_DURATION:
+                    if looprectimestamp < MAX_LOOP_DURATION or args['itertimestamp']:
 
                         # loop length is unbounded. add 10 seconds to loop np array
                         if loopindex >= len(loopdata):
@@ -190,12 +213,6 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
                         loopdata[loopindex] = compositedata[loopindex] = (inputbits, looprectimestamp)
                         loopindex += 1
 
-                else:
-
-                    # reset first loop record variable
-                    if looprecstart:
-                        looprecstart = 0
-
             else:
 
                 # compositepassstart of zero indicates this is the first pass where composite will be played 
@@ -206,6 +223,9 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
 
                 # playback timestamp relative to the start of the composite
                 inputtimestamp = passtime - compositepassstart
+
+                if debugpass:
+                    logqueue.put(("INFO", "Input timestamp: %f" % inputtimestamp))
 
                 # search in the composite for the closest timestamps higher and lower than the current timestamp (relative to composite start time)
                 # could use binary search, but in practice this should be within a small number of array indices away from the current composite index
@@ -226,12 +246,19 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
 
                 if status['recording']:
 
+                    if debugpass:
+                        logqueue.put(("INFO", "Last composite index: %d" % lastcompositeindex))
+                        logqueue.put(("INFO", "Composite index: %d" % compositeindex))
+
                     # add merged input and composite
                     # write to all indices between the last written one and this one
                     # which will result in some pretty square sonic waves, but it's better than having composite array
                     # indices that aren't written to by subsequent loops
-                    if lastcompositeindex <= compositeindex:
-                        compositedata[lastcompositeindex + 1 : compositeindex + 1]['value'] +=  inputbits - compositenorm
+                    if lastcompositeindex == compositeindex:
+                        compositedata[compositeindex]['value'] += inputbits - compositenorm
+
+                    elif lastcompositeindex < compositeindex:
+                        compositedata[lastcompositeindex + 1 : compositeindex + 1]['value'] += inputbits - compositenorm
 
                     # if the composite index looped around since last pass
                     # even if the compositedata array has changed size since the last pass, and lastcompositeindex is larger
@@ -251,9 +278,6 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
 
             # write to AUX output
             audioout.write(outputbits)
-
-        # get status for next pass
-        updatestatus(status, controlqueue)
 
     # Deinitialization actions
     logqueue.put(("INFO", "Monitoring frequency: %f" % (monitors / (time.time() - uptime))))

@@ -4,6 +4,8 @@
 
 from enum import Enum
 
+BLOCK_TIMEOUT=5
+
 class GPIO:
     class FSEL(Enum):
         INPUT   = 0
@@ -14,17 +16,17 @@ class GPIO:
         DOWN    = 1
         UP      = 2
 
-    def __init__(self, queue, mode):
+    def __init__(self, queue, mode, default=0):
         self.type = "gpio"
         self.queue = queue
         self.mode = mode
-        self.val = 0
+        self.val = default
         
     def read(self):
-        if mode == GPIO.FSEL.OUTPUT:
+        if self.mode == GPIO.FSEL.INPUT:
             # only read one value per call, so it's certain to be "observed" by the program
             if not self.queue.empty():
-                self.val = queue.get(timeout=5)
+                self.val = self.queue.get(timeout=BLOCK_TIMEOUT)
             return self.val
 
     def write(self, val):
@@ -47,7 +49,7 @@ class SPI:
         self.queue = queue
 
     def read(self):
-        return self.queue.get(timeout=5)
+        return self.queue.get(timeout=BLOCK_TIMEOUT)
 
     def read_bytes(self, buflen):
         retbuf = [0] * buflen

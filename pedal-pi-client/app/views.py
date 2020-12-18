@@ -1,5 +1,6 @@
 from app import flaskapp, pedal
 import flask
+import json
 import os
 
 import sys
@@ -11,7 +12,11 @@ from common import *
 # -------------
 
 # directory containing static web GUI resource files
-STATIC_DIR = "/Users/rick/Documents/Other/strangeloop/pedal-pi-client/app/static/dist"
+STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static/dist"
+
+SUCCESS_CODE        = 200
+BAD_REQUEST_CODE    = 400
+SERVER_ERROR_CODE   = 500
 
 # --------------------------------
 #   Client-Server Endpoints
@@ -21,28 +26,19 @@ STATIC_DIR = "/Users/rick/Documents/Other/strangeloop/pedal-pi-client/app/static
 def index():
     return flask.render_template("index.html", pedal=pedal)
  
-# ------------------------------
-#   Synchronous POST endpoints
-# ------------------------------
+# -------------------------------
+#   Asynchronous POST endpoints
+# -------------------------------
 
 @flaskapp.route("/newsession", methods=["POST"])
 def newsession():
     nickname = flask.request.values['nickname']
     if nickname:
         nickname = str(nickname)
-        pedalresponse = pedal.newsession(nickname)
-        if pedalresponse == SUCCESS_RETURN:
-            flask.flash("Created session %s" % pedal.sessionid)
-        else:
-            flask.flash({
-                NONE_RETURN       : "Pedal already in session %s. Session not created." % pedal.sessionid,
-                FAILURE_RETURN    : "Server error. Session not created.",
-                FULL_RETURN       : "Server full. Session not created.",
-                OFFLINE_RETURN    : "Unable to communicate with server. Session not created." 
-                }[pedalresponse])
+        serverresponse = pedal.newsession(nickname)
+        return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500) 
     else:
-        flask.flash("Nickname required.")
-    return flask.redirect(flask.url_for("index"))
+        return flask.make_response(flask.jsonify(FAILURE_RETURN), 400)
 
 @flaskapp.route("/joinsession", methods=["POST"])
 def joinsession():
@@ -51,53 +47,30 @@ def joinsession():
     if sessionid and nickname:
         sessionid = str(sessionid)
         nickname = str(nickname)
-        pedalresponse = pedal.joinsession(nickname, sessionid)
-        if pedalresponse == SUCCESS_RETURN:
-            flask.flash("Joined session %s." % pedal.sessionid)
-        else:
-            flask.flash({
-                FAILURE_RETURN    : "Pedal already in session %s. Session %s not joined." % (pedal.sessionid, sessionid) if pedal.sessionid else "Session %s not found." % sessionid,
-                FULL_RETURN       : "Session %s is full." % sessionid,
-                OFFLINE_RETURN    : "Unable to communicate with server. Session not joined." 
-            }[pedalresponse])
+        serverresponse = pedal.joinsession(nickname, sessionid)
+        return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
     else:
-        flask.flash("Session ID and nickname required.")
-    return flask.redirect(flask.url_for("index"))
+        return flask.make_response(flask.jsonify(FAILURE_RETURN), 400)
 
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
-    pedalresponse = pedal.endsession()
-    if pedalresponse == SUCCESS_RETURN:
-        flask.flash("Session ended.")
-    elif pedalresponse == OFFLINE_RETURN:
-        flask.flash("Unable to communicate with server. Session not ended.")
-    else:
-        flask.flash("Session %s is not owned by you." % pedal.sessionid if pedal.sessionid else "Pedal not in session.")
-    return flask.redirect(flask.url_for("index"))
+    serverresponse = pedal.endsession()
+    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
 
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
-    pedalresponse = pedal.leavesession()
-    if pedalresponse == SUCCESS_RETURN:
-        flask.flash("Session ended.")
-    elif pedalresponse == OFFLINE_RETURN:
-        flask.flash("Unable to communicate with server. Session not left.")
-    else:
-        flask.flash("Pedal not in session.")
-    return flask.redirect(flask.url_for("index"))
-
-# -------------------------------
-#   Asynchronous POST endpoints
-# -------------------------------
+    serverresponse = pedal.leavesession()
+    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
 
 @flaskapp.route("/toggleloop", methods=["POST"])
 def toggleloop():
     if pedal.recording:
-        pedal.endloop()
-        return "Loop recorded."
+        serverresponse = pedal.endloop()
     else:
-        pedal.startloop()
-        return "Recording loop..."
+        serverresponse = pedal.startloop()
+    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
+    
+
 # ------------------------------
 #   Asynchronous GET endpoints
 # ------------------------------
@@ -105,13 +78,27 @@ def toggleloop():
 # check current session membership
 @flaskapp.route("/getsession")
 def getsession():
-    pedalresponse = pedal.getsession()
-    if pedalresponse == SUCCESS_RETURN:
-        return "%s %s %s" % (SUCCESS_RETURN, pedal.sessionid, "owner" if pedal.owner else "member")
-    elif pedalresponse == OFFLINE_RETURN:
-        flask.flash("Unable to communicate with server. Session not ended.")
-    return pedalresponse
+    serverresponse = pedal.getsession()
+    if serverresponse == SUCCESS_RETURN:
+        return flask.make_response(flask.jsonify(pedal.sessionid, pedal.owner), 200)
+    else:
+        return flask.make_response(flask.jsonify(serverresponse), 500)
 
+# get list of session members
+@flaskapp.route("/getmembers")
+def getmembers():
+    serverresponse = pedal.getmembers()
+    if serverresponse == SUCCESS_RETURN:
+        return flask.make_response(flask.jsonify(pedal.sessionmembers), 200)
+    else:
+        return flask.make_response(flask.jsonify(serverresponse), 500)
+
+# get list of loop ids
+# this one does NOT incur an "updateloops" call from the pedal because that involves a lot of data
+# instead just returns all the keys from offline loop dict
+@flaskapp.route("/getloops")
+def getloops():
+    return flask.make_response(flask.jsonify(sorted(list(pedal.loops.keys()))), 200)
 
 # -------------------------------
 #   Static Fileserver Endpoints

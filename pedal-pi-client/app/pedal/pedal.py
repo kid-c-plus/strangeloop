@@ -16,7 +16,7 @@ from io import BytesIO
 import numpy as np
 import logging
 
-import common
+from common import *
 
 from . import rpi, vrpi, audioprocessor
 
@@ -79,6 +79,8 @@ PEDAL_KW_DEFAULTS = {
     'webdebug'      : False,
     # default is to use root-level logger
     'loggername'    : None,
+
+    'rpisleep'      : RPI_POLL_INTERVAL,
 
     # use virtual rpi queues instead of true RPi components
     'virtualize'    : False,
@@ -190,7 +192,7 @@ class Pedal():
             self.pedal.slplogger.debug("Started RPi Polling Thread")
             
             while self.pedal.running:
-                time.sleep(RPI_POLL_INTERVAL)
+                time.sleep(self.pedal.rpisleep)
 
                 # button reads are unreliable for a little while after a press
                 debounce_delay = False
@@ -257,11 +259,11 @@ class Pedal():
 
         if self.virtualize:
 
-            self.pushbutton1    = vrpi.GPIO(self.vqueues['pushbutton1'], rpi.GPIO.FSEL.INPUT)
-            self.pushbutton2    = vrpi.GPIO(self.vqueues['pushbutton2'], rpi.GPIO.FSEL.INPUT)
-            self.toggleswitch   = vrpi.GPIO(self.vqueues['toggleswitch'], rpi.GPIO.FSEL.INPUT)
-            self.footswitch     = vrpi.GPIO(self.vqueues['footswitch'], rpi.GPIO.FSEL.INPUT)
-            self.led            = vrpi.GPIO(self.vqueues['led'], rpi.GPIO.FSEL.OUTPUT)
+            self.pushbutton1    = vrpi.GPIO(self.vqueues['pushbutton1'], vrpi.GPIO.FSEL.INPUT, PUSHBUTTON_RELEASE)
+            self.pushbutton2    = vrpi.GPIO(self.vqueues['pushbutton2'], vrpi.GPIO.FSEL.INPUT, PUSHBUTTON_RELEASE)
+            self.toggleswitch   = vrpi.GPIO(self.vqueues['toggleswitch'], vrpi.GPIO.FSEL.INPUT, TOGGLESWITCH_OFF)
+            self.footswitch     = vrpi.GPIO(self.vqueues['footswitch'], vrpi.GPIO.FSEL.INPUT, FOOTSWITCH_MON)
+            self.led            = vrpi.GPIO(self.vqueues['led'], vrpi.GPIO.FSEL.OUTPUT)
 
         else:
 
@@ -285,10 +287,6 @@ class Pedal():
 
         # assume 41 kHz sampling interval
         self.avgsampleperiod = 1 / 41000
-
-        # initialize empty loop data ~ 10 seconds long
-        self.loopdata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
-        self.loopindex = 0
 
         # initialice IPC threads for audioprocessor
         self.audiocontrolqueue      = multiprocessing.Queue()
@@ -366,7 +364,7 @@ class Pedal():
     # create new session
     # updates pedal object sessionid & owner variables
     # args:     nickname:   self-appointed identifier to the other users in the session (need not be unique)
-    # return:   newly created session identifier on success, server response on failure, or OFFLINE_RETURN on failure to connect
+    # return:   server response or OFFLINE_RETURN on failure to connect
 
     def newsession(self, nickname):
         try:
@@ -466,15 +464,18 @@ class Pedal():
 
             if serverresponse != FAILURE_RETURN:
                 if serverresponse == NONE_RETURN:
-                    self.gooffline()
+                    if self.sessionid:
+                        self.gooffline()
                 else:
-                    self.owner, self.sessionid = serverresponse.split(":")
+                    newsessionid, self.owner = serverresponse.split(":")
                     # convert string description to a boolean
                     self.owner = (self.owner == "owner")
 
-                    self.goonline()
+                    if not self.sessionid or self.sessionid != newsessionid:
+                        self.sessionid = newsessionid
+                        self.goonline()
 
-                    return SUCCESS_RETURN
+                return SUCCESS_RETURN
             return serverresponse 
         except requests.exceptions.ConnectionError:
 
@@ -585,6 +586,8 @@ class Pedal():
 
         self.led.turn_on()
 
+        return SUCCESS_RETURN
+
     # stop recording loop, add loop data to composite, and send
     # loop to strangeloop server, if pedal is in online session
     # return:   server response if online, SUCCESS_RETURN if offline
@@ -592,13 +595,19 @@ class Pedal():
     def endloop(self):
 
         self.recording = False
+
         self.led.turn_off()
+
         time.sleep(END_LOOP_SLEEP)
 
         self.audiocontrolqueue.put(audioprocessor.Control.ToggleRecording)
 
         # get loop from audioprocessor object
-        loopdata = self.audioloopqueue.get()
+        # when using vqueues, this will cause a sort of deadlock that prevents the loop from being started again
+        if self.virtualize:
+            loopdata = np.zeros((int(ARRAY_SIZE_SEC / self.avgsampleperiod)), dtype=LOOP_ARRAY_DTYPE)
+        else:
+            loopdata = self.audioloopqueue.get()
 
         # insert loop into offline loops dict
         loopindex = 1
@@ -619,7 +628,7 @@ class Pedal():
     # return:   server response (or SUCCESS_RETURN for offline session)
 
     def removeloop(self, index=None):
-        if index == None:
+        if index == None and len(self.loops):
             index = max(list(self.loops.keys()))
 
         if index in self.loops:

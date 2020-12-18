@@ -1,55 +1,91 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 
-// ------------
+// -----------
 //  Constants
-// ------------
+// -----------
 
 // string responses sent by server
-var SUCCESS_RETURN = "True";
-var FAILURE_RETURN = "False";
-var FULL_RETURN = "Full";
-var NONE_RETURN = "None";
+const SUCCESS_RETURN    = "True";
+const FAILURE_RETURN    = "False";
+const FULL_RETURN       = "Full";
+const NONE_RETURN       = "None";
 
-// ------------
+// ------------------
+//  Global Variables
+// ------------------
+
+var sessionId   = "";
+var owner       = "";
+var members     = [];
+var loops       = [];
+
+// -----------
 //  Functions
-// ------------
+// -----------
 
-// response handler for Ajax request
-/*
-var ajaxRespHandler = function(data, statusCode) {
-    if (statusCode == 200) {
-        let dataParts = data.split(" ");
+var flashMessage = (message, type) => console.log(`${type}: ${message}`);
 
-        if (dataParts.length == 3 && dataParts[0] === SUCCESS_RETURN) {
-            
-
-     } else {
-        console.log(`error code ${statusCode}`);
-        console.log(data);
-        return "error";
-    }
-};
-*/ 
-// checkSession: periodically query localhost getSession method
-//                and update webpage accordingly
-
-var checkSession = function() {
-    // return $.get(`http://${pedalDomain}/getsession`, ajaxRespHandler);
-}
-
-// ---------------------
+// --------------------
 //  React Superclasses
-// ---------------------
+// --------------------
 
 class ControlPanel extends React.Component {
     
     constructor(props) {
         super(props);
         this.state = {
-            sessionId:  props.sessionId,
-            owner:      props.owner,
+            sessionId:  "",
+            owner:      false,
+            members:    [],
+            loops:      [],
         };
+    }
+
+    // updateSession: periodically query localhost getSession method
+    //                and update webpage accordingly
+
+    var updateSession = () => {
+        fetch(`http://${pedaldomain}/getsession`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(response.json());
+                }
+                return response.json());
+            .then(data => {
+                    let si, o;
+                    [si, o] = data;
+                    this.setState({sessionId: si, owner: o});
+                })
+            .catch(error => flashMessage("Server error while updating session", "error"));
+    }
+
+    // updateMembers: periodically query localhost getmembers method
+    //                and update webpage accordingly
+
+    var updateMembers = () => {
+        fetch(`http://${pedaldomain}/getmembers`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(response.json());
+                }
+                return response.json());
+            .then(data => this.setState({members: data})
+            .catch(error => flashMessage("Server error while updating member list", "error"));
+    }
+
+    // updateLoops: periodically query localhost getmembers method
+    //              and update webpage accordingly
+
+    var updateLoops = () => {
+        fetch(`http://${pedaldomain}/getloops`)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(response.json());
+                }
+                return response.json());
+            .then(data => this.setState({loops: data}))
+            .catch(error => flashMessage("Server error while updating loop list", "error"));
     }
 
     render() {
@@ -62,7 +98,6 @@ class ControlPanel extends React.Component {
                 <LoopMemberList sessionId={this.state.sessionId} inSession={inSession} />
             </div>
         );
-                //<SessionControl sessionId={this.state.sessionId} inSession={inSession} />
     }
 
 }
@@ -126,7 +161,7 @@ class LoopMemberList extends React.Component {
 }
 
             
-
-ReactDOM.render(<ControlPanel sessionId={sessionId} owner={owner} />, document.getElementById("controlcontainer"));
+// root control panel, update this object's state
+var controlpanel = ReactDOM.render(<ControlPanel />, document.getElementById("controlcontainer"));
 
 // setInterval(checkSession, 5000);

@@ -12,9 +12,6 @@
             <div id="controlcontainer"></div>
         </div>
         <script>
-            var sessionId = "{{ pedal.sessionid if pedal.sessionid }}"
-            var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}	
-            var loops = {{ list(pedal.loops.keys()) }};
 	        var pedalDomain = "{{ pedal.domainname }}";
         </script>
         <script src="static/dist/bundle.js"></script>
