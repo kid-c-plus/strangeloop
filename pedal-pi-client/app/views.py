@@ -14,6 +14,7 @@ from common import *
 # directory containing static web GUI resource files
 STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static/dist"
 
+# HTTP response codes
 SUCCESS_CODE        = 200
 BAD_REQUEST_CODE    = 400
 SERVER_ERROR_CODE   = 500
@@ -36,9 +37,9 @@ def newsession():
     if nickname:
         nickname = str(nickname)
         serverresponse = pedal.newsession(nickname)
-        return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500) 
+        return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE) 
     else:
-        return flask.make_response(flask.jsonify(FAILURE_RETURN), 400)
+        return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
 
 @flaskapp.route("/joinsession", methods=["POST"])
 def joinsession():
@@ -48,19 +49,19 @@ def joinsession():
         sessionid = str(sessionid)
         nickname = str(nickname)
         serverresponse = pedal.joinsession(nickname, sessionid)
-        return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
+        return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
     else:
-        return flask.make_response(flask.jsonify(FAILURE_RETURN), 400)
+        return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
 
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
     serverresponse = pedal.endsession()
-    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
+    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
 
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
     serverresponse = pedal.leavesession()
-    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
+    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
 
 @flaskapp.route("/toggleloop", methods=["POST"])
 def toggleloop():
@@ -68,7 +69,7 @@ def toggleloop():
         serverresponse = pedal.endloop()
     else:
         serverresponse = pedal.startloop()
-    return flask.make_response(flask.jsonify(serverresponse), 200 if serverresponse == SUCCESS_RETURN else 500)
+    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
     
 
 # ------------------------------
@@ -80,25 +81,25 @@ def toggleloop():
 def getsession():
     serverresponse = pedal.getsession()
     if serverresponse == SUCCESS_RETURN:
-        return flask.make_response(flask.jsonify(pedal.sessionid, pedal.owner), 200)
+        return flask.make_response(flask.jsonify(pedal.sessionid, pedal.owner), SUCCESS_CODE)
     else:
-        return flask.make_response(flask.jsonify(serverresponse), 500)
+        return flask.make_response(flask.jsonify(serverresponse), SERVER_ERROR_CODE)
 
 # get list of session members
 @flaskapp.route("/getmembers")
 def getmembers():
     serverresponse = pedal.getmembers()
     if serverresponse == SUCCESS_RETURN:
-        return flask.make_response(flask.jsonify(pedal.sessionmembers), 200)
+        return flask.make_response(flask.jsonify(pedal.sessionmembers), SUCCESS_CODE)
     else:
-        return flask.make_response(flask.jsonify(serverresponse), 500)
+        return flask.make_response(flask.jsonify(serverresponse), SERVER_ERROR_CODE)
 
 # get list of loop ids
 # this one does NOT incur an "updateloops" call from the pedal because that involves a lot of data
 # instead just returns all the keys from offline loop dict
 @flaskapp.route("/getloops")
 def getloops():
-    return flask.make_response(flask.jsonify(sorted(list(pedal.loops.keys()))), 200)
+    return flask.make_response(flask.jsonify(sorted(list(pedal.loops.keys()))), SUCCESS_CODE)
 
 # -------------------------------
 #   Static Fileserver Endpoints

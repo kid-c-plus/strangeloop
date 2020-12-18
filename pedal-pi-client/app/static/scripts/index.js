@@ -11,20 +11,20 @@ const FAILURE_RETURN    = "False";
 const FULL_RETURN       = "Full";
 const NONE_RETURN       = "None";
 
+// update session variables every 15 seconds
+const UPDATE_PERIOD     = 15000;
+
 // ------------------
 //  Global Variables
 // ------------------
-
-var sessionId   = "";
-var owner       = "";
-var members     = [];
-var loops       = [];
 
 // -----------
 //  Functions
 // -----------
 
 var flashMessage = (message, type) => console.log(`${type}: ${message}`);
+
+var listElems = (elem) => <li>{elem}</li>;
 
 // --------------------
 //  React Superclasses
@@ -42,50 +42,73 @@ class ControlPanel extends React.Component {
         };
     }
 
-    // updateSession: periodically query localhost getSession method
-    //                and update webpage accordingly
+    // called immediately after object is inserted in the DOM
+    // begins update polling interval
 
-    var updateSession = () => {
+    componentDidMount() {
+        let intervalId = setInterval(update, UPDATE_PERIOD);
+        this.setState({intervalId: intervalId});
+    }
+
+    // called immediately before object is removed from the DOM
+    // clears update polling interval
+
+    componentWillUnmount() {
+        clearInterval(this.state.intervalId);
+    }
+
+    // updateSession: query localhost getSession method and update state accordingly
+
+    updateSession() {
         fetch(`http://${pedaldomain}/getsession`)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(response.json());
-                }
-                return response.json());
+                    }
+                return response.json();
+                })
             .then(data => {
-                    let si, o;
-                    [si, o] = data;
-                    this.setState({sessionId: si, owner: o});
+                    let sessionId, owner;
+                    [sessionId, owner] = data;
+                    this.setState({sessionId: sessionId, owner: owner});
                 })
             .catch(error => flashMessage("Server error while updating session", "error"));
     }
 
-    // updateMembers: periodically query localhost getmembers method
-    //                and update webpage accordingly
+    // updateMembers: query localhost getmembers method and update state accordingly
 
-    var updateMembers = () => {
+    updateMembers() {
         fetch(`http://${pedaldomain}/getmembers`)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(response.json());
-                }
-                return response.json());
-            .then(data => this.setState({members: data})
+                    }
+                return response.json();
+                })
+            .then(data => this.setState({members: data}))
             .catch(error => flashMessage("Server error while updating member list", "error"));
     }
 
-    // updateLoops: periodically query localhost getmembers method
-    //              and update webpage accordingly
+    // updateLoops: query localhost getmembers method and update state accordingly
 
-    var updateLoops = () => {
+    updateLoops() {
         fetch(`http://${pedaldomain}/getloops`)
             .then(response => {
                 if (!response.ok) {
                     throw new Error(response.json());
-                }
-                return response.json());
+                    }
+                return response.json();
+                })
             .then(data => this.setState({loops: data}))
             .catch(error => flashMessage("Server error while updating loop list", "error"));
+    }
+
+    // update: calls all update methods
+
+    update() {
+        updateSession();
+        updateMembers();
+        updateLoops();
     }
 
     render() {
@@ -95,7 +118,7 @@ class ControlPanel extends React.Component {
 
         return (
             <div id={inSession ? "onlinecontrolcontainer" : "offlinecontrolcontainer"}>
-                <LoopMemberList sessionId={this.state.sessionId} inSession={inSession} />
+                <LoopMemberList inSession={inSession} loops={this.state.loops} members={this.state.members} />
             </div>
         );
     }
@@ -107,8 +130,9 @@ class LoopMemberList extends React.Component {
     constructor(props) {
         super(props);
         this.state = {
-            sessionId:  props.sessionId,
             inSession:  props.inSession,
+            loops:      props.loops,
+            members:    props.members, 
             focused:    "loops"
         };
     }
@@ -120,7 +144,7 @@ class LoopMemberList extends React.Component {
 
     render() {
     
-        const loopmembercontrol = (
+        const loopMemberControl = (
             <div id="loopmembercontrol">
                 <div id="loopfocusbutton" onClick={() => this.getFocus("loops")}>
                     LOOPS
@@ -131,28 +155,18 @@ class LoopMemberList extends React.Component {
             </div>
         );
 
-        const looplist = (
-            <ul>
-                
-            </ul>
-        );
-
-        const memberlist = (
-            <ul>
-                <li>rick</li>
-                <li>ash</li>
-                <li>matt</li>
-            </ul>
-        );
-
         return (
             <>
-                {this.state.inSession ? loopmembercontrol : loopmembercontrol}
+                {this.state.inSession ? loopMemberControl : loopMemberControl}
                 <div id="loopcontainer" style={{display: this.state.focused === "loops" ? "flex" : "none" }}>
-                    {looplist}
+                    <ul>
+                        this.state.loops.map(listElems)
+                    </ul>
                 </div>
                 <div id="membercontainer" style={{display: this.state.focused === "members" ? "flex" : "none" }}>
-                    {memberlist}
+                    <ul>
+                        this.state.members.map(listElems);
+                    </ul>
                 </div>
             </>
         );
@@ -161,7 +175,5 @@ class LoopMemberList extends React.Component {
 }
 
             
-// root control panel, update this object's state
+// root control panel
 var controlpanel = ReactDOM.render(<ControlPanel />, document.getElementById("controlcontainer"));
-
-// setInterval(checkSession, 5000);
