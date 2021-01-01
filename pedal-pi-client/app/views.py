@@ -16,8 +16,8 @@ STATIC_DIR = "/opt/strangeloop/pedal-pi-client/app/static/dist"
 
 # HTTP response codes
 SUCCESS_CODE        = 200
+FAILURE_CODE        = 404
 BAD_REQUEST_CODE    = 400
-SERVER_ERROR_CODE   = 500
 
 # --------------------------------
 #   Client-Server Endpoints
@@ -33,44 +33,71 @@ def index():
 
 @flaskapp.route("/newsession", methods=["POST"])
 def newsession():
-    nickname = flask.request.values['nickname']
+    nickname = flask.request.json['nickname']
     if nickname:
         nickname = str(nickname)
-        serverresponse = pedal.newsession(nickname)
-        return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE) 
-    else:
-        return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
-
-@flaskapp.route("/joinsession", methods=["POST"])
-def joinsession():
-    sessionid = flask.request.values['sessionid']
-    nickname = flask.request.values['nickname']
-    if sessionid and nickname:
-        sessionid = str(sessionid)
-        nickname = str(nickname)
-        serverresponse = pedal.joinsession(nickname, sessionid)
-        return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
+        pedalresponse = pedal.newsession(nickname)
+        return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE) 
     else:
         return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
 
 @flaskapp.route("/endsession", methods=["POST"])
 def endsession():
-    serverresponse = pedal.endsession()
-    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
+    pedalresponse = pedal.endsession()
+    return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
+
+@flaskapp.route("/joinsession", methods=["POST"])
+def joinsession():
+    sessionid = flask.request.json['sessionid']
+    nickname = flask.request.json['nickname']
+    if sessionid and nickname:
+        sessionid = str(sessionid)
+        nickname = str(nickname)
+        pedalresponse = pedal.joinsession(nickname, sessionid)
+        return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
+    else:
+        return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
 
 @flaskapp.route("/leavesession", methods=["POST"])
 def leavesession():
-    serverresponse = pedal.leavesession()
-    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
+    pedalresponse = pedal.leavesession()
+    return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
 
 @flaskapp.route("/toggleloop", methods=["POST"])
 def toggleloop():
     if pedal.recording:
-        serverresponse = pedal.endloop()
+        pedalresponse = pedal.endloop()
     else:
-        serverresponse = pedal.startloop()
-    return flask.make_response(flask.jsonify(serverresponse), SUCCESS_CODE if serverresponse == SUCCESS_RETURN else SERVER_ERROR_CODE)
-    
+        pedalresponse = pedal.startloop()
+    return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
+
+@flaskapp.route("/removeloop", methods=["POST"])
+def removeloop():
+    loopindex = flask.request.json['loopindex']
+    if loopindex:
+        try:
+            loopindex = int(loopindex)
+            pedalresponse = pedal.removeloop(loopindex)
+            return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
+        except:
+            pass
+    return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
+            
+
+@flaskapp.route("/startplayback", methods=["POST"])
+    loopindex = flask.request.json['loopindex']
+    if loopindex:
+        try:
+            loopindex = int(loopindex)
+            pedalresponse = pedal.startplayback(loopindex)
+            return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
+        except:
+            pass
+    return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
+
+@flaskapp.route("/stopplayback", methods=["POST"])
+    pedalresponse = pedal.stopplayback()
+    return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
 
 # ------------------------------
 #   Asynchronous GET endpoints
@@ -79,20 +106,20 @@ def toggleloop():
 # check current session membership
 @flaskapp.route("/getsession")
 def getsession():
-    serverresponse = pedal.getsession()
-    if serverresponse == SUCCESS_RETURN:
-        return flask.make_response(flask.jsonify(pedal.sessionid, pedal.owner), SUCCESS_CODE)
+    pedalresponse = pedal.getsession()
+    if pedalresponse in [SUCCESS_RETURN, NONE_RETURN]:
+        return flask.make_response(flask.jsonify((pedal.sessionid, pedal.owner)), SUCCESS_CODE)
     else:
-        return flask.make_response(flask.jsonify(serverresponse), SERVER_ERROR_CODE)
+        return flask.make_response(flask.jsonify(pedalresponse), FAILURE_CODE)
 
 # get list of session members
 @flaskapp.route("/getmembers")
 def getmembers():
-    serverresponse = pedal.getmembers()
-    if serverresponse == SUCCESS_RETURN:
+    pedalresponse = pedal.getmembers()
+    if pedalresponse in [SUCCESS_RETURN, NONE_RETURN]:
         return flask.make_response(flask.jsonify(pedal.sessionmembers), SUCCESS_CODE)
     else:
-        return flask.make_response(flask.jsonify(serverresponse), SERVER_ERROR_CODE)
+        return flask.make_response(flask.jsonify(pedalresponse), FAILURE_CODE)
 
 # get list of loop ids
 # this one does NOT incur an "updateloops" call from the pedal because that involves a lot of data

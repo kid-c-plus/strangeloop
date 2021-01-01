@@ -1,6 +1,7 @@
 import logging
 import sys
 import flask
+import flask_cors
 from .pedal import Pedal
 
 flaskapp = flask.Flask(__name__)
@@ -12,7 +13,9 @@ flaskapp.logger.handlers.clear()
 flaskapp.logger.addHandler(handler)
 flaskapp.logger.setLevel(logging.DEBUG)
 
-pedal = Pedal(debug=True, webdebug=True, loggername="%s.pedal" % __name__)
+pedal = Pedal(debug=True, createsession=False, loggername="%s.pedal" % __name__)
 pedal.run()
+
+cors = flask_cors.CORS(flaskapp, origins=["http://%s" %  pedal.domainname, "http://%s" % pedal.ipaddress])
 
 from app import views
