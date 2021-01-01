@@ -85,6 +85,7 @@ def removeloop():
             
 
 @flaskapp.route("/startplayback", methods=["POST"])
+def startplayback():
     loopindex = flask.request.json['loopindex']
     if loopindex:
         try:
@@ -96,6 +97,7 @@ def removeloop():
     return flask.make_response(flask.jsonify(FAILURE_RETURN), BAD_REQUEST_CODE)
 
 @flaskapp.route("/stopplayback", methods=["POST"])
+def stopplayback():
     pedalresponse = pedal.stopplayback()
     return flask.make_response(flask.jsonify(pedalresponse), SUCCESS_CODE if pedalresponse == SUCCESS_RETURN else FAILURE_CODE)
 
