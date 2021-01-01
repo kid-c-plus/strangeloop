@@ -2,7 +2,7 @@ from app import flaskapp, db, models
 
 import flask
 import json
-from string import ascii_uppercase
+from string import ascii_lowercase
 from datetime import datetime as dt
 from io import BytesIO
 import numpy as np
@@ -21,6 +21,7 @@ from common import *
 MAX_SESSIONS = 200
 MAX_SESSION_SIZE = 20
 MAX_LOOPS = 30
+MAX_NICKNAME_LENGTH = 20
 
 MAC_REGEX = re.compile("(..:){5}..")
 NICKNAME_SUB_REGEX = re.compile("[,\n]")
@@ -34,7 +35,7 @@ NICKNAME_SUB_REGEX = re.compile("[,\n]")
 def generatesessionid(seed=0):
     sessionid = ""
     for _ in range(4):
-        sessionid = ascii_uppercase[seed % 26] + sessionid
+        sessionid = ascii_lowercase[seed % 26] + sessionid
         seed //= 26
     return sessionid
 
@@ -57,11 +58,12 @@ def newsession():
     if mac and MAC_REGEX.fullmatch(str(mac)) and nickname:
         mac, nickname = [str(val) for val in (mac, nickname)]
         nickname = NICKNAME_SUB_REGEX.sub("", nickname)
+        nickname = nickname[:min(len(nickname), MAX_NICKNAME_LENGTH)]
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
             # pedal already has running session
             flaskapp.logger.info("Pedal %s at IP %s requested new session despite already having open session %s" % (mac, flask.request.remote_addr, pedal.sessionid))
-            return NONE_RETURN 
+            return FAILURE_RETURN 
         else:
             numsessions = models.Pedal.query.count()
             if numsessions < MAX_SESSIONS: 
@@ -118,7 +120,7 @@ def endsession():
 
 # join session
 # args:     POST: MAC address of pedal joining session
-#           POST: nickname of pedal (optional)
+#           POST: nickname of pedal
 #           POST: session ID to join
 # return:   SUCCESS_RETURN if session joined, FAILURE_RETURN if session nonexistent or pedal already in session
 
@@ -127,6 +129,7 @@ def joinsession():
     mac, nickname, sessionid = [flask.request.values.get(key) for key in ('mac', 'nickname', 'sessionid')]
     if mac and MAC_REGEX.fullmatch(str(mac)) and nickname and sessionid:
         mac, nickname, sessionid = [str(val) for val in (mac, nickname, sessionid)]
+        nickname = nickname[:min(len(nickname), MAX_NICKNAME_LENGTH)]
         nickname = NICKNAME_SUB_REGEX.sub("", nickname)
         pedal = models.Pedal.query.get(mac)
         if pedal and pedal.session:
@@ -136,16 +139,20 @@ def joinsession():
             session = models.Session.query.get(sessionid)
             if session:
                 if len(session.pedals) < MAX_SESSION_SIZE:
-                    pedal = models.Pedal.query.get(mac)
-                    if pedal:
-                        pedal.session = session
+                    if nickname in [pedal.nickname for pedal in session.pedals]:
+                        flaskapp.logger.info("Pedal %s at IP %s attempted to join session %s using already-present nickname %s" % (mac, flask.request.remote_addr, sessionid, nickname))
+                        return COLLISION_RETURN
                     else:
-                        pedal = models.Pedal(mac=mac.strip(), nickname=nickname.strip(), session=session)
+                        pedal = models.Pedal.query.get(mac)
+                        if pedal:
+                            pedal.session = session
+                        else:
+                            pedal = models.Pedal(mac=mac.strip(), nickname=nickname.strip(), session=session)
 
-                    db.session.commit()
+                        db.session.commit()
 
-                    flaskapp.logger.info("Pedal %s at IP %s joined session %s" % (mac, flask.request.remote_addr, sessionid))
-                    return SUCCESS_RETURN
+                        flaskapp.logger.info("Pedal %s at IP %s joined session %s" % (mac, flask.request.remote_addr, sessionid))
+                        return SUCCESS_RETURN
                 else:
                     flaskapp.logger.info("Pedal %s at IP %s attempted to join full session %s" % (mac, flask.request.remote_addr, sessionid))
                     return FULL_RETURN

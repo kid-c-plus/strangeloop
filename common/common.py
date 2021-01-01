@@ -12,8 +12,12 @@ FAILURE_RETURN = "False"
 FULL_RETURN = "Full"
 NONE_RETURN = "None"
 EMPTY_RETURN = "Empty"
+COLLISION_RETURN = "Collision"
 # return value if unable to connect to server
 OFFLINE_RETURN = "Offline"
+
+# loops can be up to 2 minutes long
+MAX_LOOP_DURATION = 120
 
 # -----------
 #   Methods

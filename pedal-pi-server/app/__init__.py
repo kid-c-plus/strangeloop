@@ -42,7 +42,7 @@ idle_td = td(hours=MAX_SESSION_IDLE)
 def maintaindatabase():
     sessions = models.Session.query.all()
     for session in sessions:
-        if not len(session.pedals) or (session.lastmodified == None and session.timestamp < dt.utcnow() - idle_td) or session.lastmodified < dt.utcnow() - idle_td:
+        if not len(session.pedals) or (session.lastmodified == None and session.timestamp < dt.utcnow() - idle_td) or (session.lastmodified and session.lastmodified < dt.utcnow() - idle_td):
             flaskapp.logger.info("Deleted %s session %s at %s" % ("idle" if len(session.pedals) else "orphaned", session.id, dt.now()))
             db.session.delete(session)
 

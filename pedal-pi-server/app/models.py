@@ -11,9 +11,6 @@ from common import *
 
 SAMPLE_MAC = "12:34:56:ab:cd:ef"
 
-# loops can be up to 2 minutes long
-MAX_LOOP_DURATION = 120
-
 # numpy dtype to define loop & composite array entries
 LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
 
@@ -50,6 +47,8 @@ class Session(db.Model):
 class Pedal(db.Model):
     # 18 characters for the MAC address
     mac = db.Column(db.String(18), primary_key=True)
+
+    # nickname must be unique per session
     nickname = db.Column(db.String(32), nullable=False)
 
     sessionid = db.Column(db.String(8), db.ForeignKey("session.id"), nullable=True)
