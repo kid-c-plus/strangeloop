@@ -227,12 +227,12 @@ class Pedal():
                 if pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and not self.pedal.recording and not self.pedal.playing:
                     self.pedal.slplogger.info("Loop started")
                     # store timestamp when loop started so that recording can time out after 2 minutes
-                    looprecstart
+                    looprecstart = dt.utcnow().timestamp()
                     self.pedal.startloop()
                     debounce_delay = True
 
                 # end loop on loop button press or recording timeout
-                elif (pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording) or (self.pedal.recording and dt.utcnow().timestamp() - looprecstart > MAX_LOOP_TIME):
+                elif (pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording) or (self.pedal.recording and dt.utcnow().timestamp() - looprecstart > MAX_LOOP_DURATION):
                     self.pedal.slplogger.info("Loop ended")
                     self.pedal.endloop()
                     debounce_delay = True
@@ -533,10 +533,17 @@ class Pedal():
                     updateresponse = SUCCESS_RETURN
 
                     for onlineloopindex in onlineloopindices:
-                        # delete all loops not present or different from offline dict, and upload local loops in those indices
-                        if onlineloopindex not in self.loops or not np.array_equal(self.getloop(onlineloopindex), self.loops[onlineloopindex]):
-                            if self.removeloop(onlineloopindex) != SUCCESS_RETURN or self.uploadloop(onlineloopindex) != SUCCESS_RETURN:
-                                updateresponse = FAILURE_RETURN
+                        onlineloop, onlineloopstatus = self.getloop(onlineloopindex)
+                        if onlineloopstatus == SUCCESS_RETURN:
+
+                            # download all loops not present in offline dict
+                            if onlineloopindex not in self.loops:
+                                self.loops[onlineloopindex] = onlineloop
+
+                            # delete all loops different from offline dict, and upload local loops in those indices
+                            elif not np.array_equal(onlineloop, self.loops[onlineloopindex]):
+                                if self.removeloop(onlineloopindex, onlineonly=True) != SUCCESS_RETURN or self.uploadloop(onlineloopindex) != SUCCESS_RETURN:
+                                    updateresponse = FAILURE_RETURN
 
                     # upload all loops not present in online session
                     for offlineloopindex in [index for index in self.loops.keys() if index not in onlineloopindices]:
@@ -636,9 +643,10 @@ class Pedal():
     # remove loop from composite
     # in offline session, only most recent loop is removeable
     # args:     loopindex:  device-unique id for loop to be removed (online only)
+    #           onlineonly: only remove loop index from online session, keeping data in offline loop dict
     # return:   server response (or SUCCESS_RETURN for offline session)
 
-    def removeloop(self, loopindex=None):
+    def removeloop(self, loopindex=None, onlineonly=False):
         if loopindex == None and len(self.loops):
             loopindex = max(list(self.loops.keys()))
 
@@ -649,24 +657,28 @@ class Pedal():
             if self.sessionid:
                 self.slplogger.info("Removing loop %d from session %s" % (loopindex, self.sessionid))
 
-                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'loopindex' : loopindex}).text
+                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : loopindex}).text
                 
                 self.slplogger.info("Loop removal returned %s" % serverresponse)
 
-                self.loops.pop(loopindex)
+                if not onlineonly:
+                    self.loops.pop(loopindex)
 
                 if serverresponse != SUCCESS_RETURN:
-                    updateloops();
+                    self.updateloops()
                 
                 return serverresponse
 
-            else:
-                self.slplogger.info("Removing loop from offline session...")
+            elif not onlineonly:
+                self.slplogger.info("Removing loop %d from offline session" % loopindex)
 
                 self.loops.pop(loopindex)
                 self.genofflinecomposite()            
 
                 return SUCCESS_RETURN
+            else:
+                self.slplogger.info("Removed online loop in offline session, no loop removed")
+                return SUCCESS
         else:
 
             self.slplogger.info("Attempted to remove nonexistent loop %d" % loopindex if loopindex is not None else -1)
@@ -778,7 +790,7 @@ class Pedal():
 
     # downloads and returns a given loop from the server 
     # args:     loopindex: index of loop to download
-    # return:   loop data, FAILURE_RETURN if loop index not found, OFFLINE_RETURN on failure to connect
+    # return:   (loop data, status) where status = SUCCESS_RETURN, FAILURE_RETURN if loop index not found, OFFLINE_RETURN on failure to connect
 
     def getloop(self, loopindex):
         try:
@@ -790,11 +802,11 @@ class Pedal():
 
             if serverresponse.text not in [NONE_RETURN, FAILURE_RETURN] and serverresponse.content:
                 try:
-                    return np.load(BytesIO(serverresponse.content), allow_pickle=False)
+                    return (np.load(BytesIO(serverresponse.content), allow_pickle=False), SUCCESS_RETURN)
                 except ValueError:
                     self.slplogger.error("Server returned invalid loop numpy array: %s" % serverresponse[: min(100, len(serverresponse))])
-            return FAILURE_RETURN
+            return (None, FAILURE_RETURN)
         except requests.exceptions.ConnectionError:
 
             self.slplogger.info("Loop download failed. Unable to connect to server")  
-            return OFFLINE_RETURN
+            return (None, OFFLINE_RETURN)
