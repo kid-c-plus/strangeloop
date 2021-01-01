@@ -383,7 +383,6 @@ def getcomposite():
                     except:
                         flaskapp.logger.info("Received invalid timestamp from pedal %s at IP %s" % (mac, flask.request.remote_addr))
                         return FALSE_RETURN
-                    flaskapp.logger.info("timestamp: %f, pedal.session.lastmodified: %f" % (timestamp, pedal.session.lastmodified.timestamp()))
                     if timestamp < pedal.session.lastmodified.timestamp():
                         return flask.Response(pedal.session.composite)
                     else:
