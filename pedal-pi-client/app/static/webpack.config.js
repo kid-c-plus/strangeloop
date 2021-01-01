@@ -1,4 +1,7 @@
 const webpack = require('webpack');
+new webpack.DefinePlugin({
+  "process.env.NODE_ENV": JSON.stringify("production")
+});
 const config = {
     entry:  __dirname + '/scripts/index.js',
     output: {
@@ -17,6 +20,7 @@ const config = {
                 use: 'babel-loader'     
             }        
         ]
-    }
+    },
+    mode: 'development'
 };
 module.exports = config;

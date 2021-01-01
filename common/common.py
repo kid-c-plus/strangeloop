@@ -83,22 +83,31 @@ def mergeloops(composite, loop):
     return composite
 
 # actually combines given numpy data arrays using same timestamp-maintaining algorithm as the pedal
+# args: loops:      array of recorded loops
+#       composite:  base loop to record atop
+#       bytestore:  load loops from byte-string and store composite to byte-string instead of treating them as numpy arrays (default True)
 # return:   byte representation of composite array given by numpy.save()
-def combineloops(loops, composite=None):
+def combineloops(loops, composite=None, bytestore=True):
     if len(loops):
-        compositeaudio = None
-        if composite:
-            compositeaudio = np.load(BytesIO(composite), allow_pickle=False)
-        for loop in loops:
-            loopaudio = np.load(BytesIO(loop.npdata), allow_pickle=False)
-            compositeaudio = mergeloops(compositeaudio, loopaudio)
-        
-        # write returnaudio numpy array to a virtual bytes file, and then save the bytes output
-        returnfile = BytesIO()
-        np.save(returnfile, compositeaudio)
-        returndata = returnfile.getvalue()
-            
-        return returndata
+        if bytestore:
+            compositeaudio = None
+            if composite:
+                compositeaudio = np.load(BytesIO(composite), allow_pickle=False)
+            for loop in loops:
+                loopaudio = np.load(BytesIO(loop.npdata), allow_pickle=False)
+                compositeaudio = mergeloops(compositeaudio, loopaudio)
+
+            # write returnaudio numpy array to a virtual bytes file, and then save the bytes output
+            returnfile = BytesIO()
+            np.save(returnfile, compositeaudio)
+            returndata = returnfile.getvalue()
+                
+            return returndata
+        else:
+            for loop in loops:
+                composite = mergeloops(compsite, loop)
+
+            return composite
     else:
         return None
 

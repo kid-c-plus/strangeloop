@@ -167,7 +167,7 @@ def run(controlqueue, compositequeue, loopqueue, logqueue, kwargs):
             avgsampleperiod = (passtime - uptime) / monitors
 
         # determines whether some debug information is printed
-        debugpass = not (monitors - 1) % 10000
+        debugpass = not (monitors - 1) % 1000000
 
         if status['monitoring']:
    

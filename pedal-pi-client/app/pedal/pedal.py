@@ -3,7 +3,7 @@
 # -------------------------------------------------------------------------
 
 import uuid
-import platform
+import socket
 import json
 import requests
 import time
@@ -31,9 +31,6 @@ END_LOOP_SLEEP = 0.0
 # delays to pause between execution of Raspberry Pi and strangeloop server monitoring threads
 RPI_POLL_INTERVAL = 0.01
 COMPOSITE_POLL_INTERVAL = 2
-
-# loops can be up to 2 minutes long
-MAX_LOOP_DURATION = 120
 
 # numpy dtype to define loop & composite array entries
 LOOP_ARRAY_DTYPE = [('value', int), ('timestamp', float)]
@@ -76,7 +73,7 @@ PEDAL_KW_DEFAULTS = {
 
     # Pedal object variables
     'debug'         : False,
-    'webdebug'      : False,
+    'createsession'      : False,
     # default is to use root-level logger
     'loggername'    : None,
 
@@ -161,7 +158,7 @@ class Pedal():
                 time.sleep(COMPOSITE_POLL_INTERVAL)
 
                 # timestamp to determine whether any new data needs to be downloaded
-                if not self.stop.is_set() and not self.pedal.recording and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
+                if not self.stop.is_set() and not self.pedal.recording and not self.pedal.playing and self.pedal.getcomposite(timestamp=self.timestamp) == SUCCESS_RETURN:
                     self.timestamp = dt.utcnow().timestamp()
 
                     self.pedal.slplogger.debug("Downloaded new composite at %s" % dt.utcfromtimestamp(self.timestamp).strftime("%Y-%m-%d-%H:%M:%S"))
@@ -190,6 +187,8 @@ class Pedal():
         def run(self):
 
             self.pedal.slplogger.debug("Started RPi Polling Thread")
+
+            looprecstart = 0
             
             while self.pedal.running:
                 time.sleep(self.pedal.rpisleep)
@@ -225,13 +224,15 @@ class Pedal():
                     debounce_delay = True
 
                 # start loop
-                if pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and not self.pedal.recording:
+                if pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and not self.pedal.recording and not self.pedal.playing:
                     self.pedal.slplogger.info("Loop started")
+                    # store timestamp when loop started so that recording can time out after 2 minutes
+                    looprecstart
                     self.pedal.startloop()
                     debounce_delay = True
 
-                # end loop
-                elif pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording:
+                # end loop on loop button press or recording timeout
+                elif (pushbutton2_val == PUSHBUTTON_PRESS and footswitch_val == FOOTSWITCH_MON and self.pedal.recording) or (self.pedal.recording and dt.utcnow().timestamp() - looprecstart > MAX_LOOP_TIME):
                     self.pedal.slplogger.info("Loop ended")
                     self.pedal.endloop()
                     debounce_delay = True
@@ -280,7 +281,13 @@ class Pedal():
         self.mac = ':'.join(("%012X" % uuidnode)[i:i+2] for i in range(0, 12, 2))
 
         # recieve device domain name on local network for AJAX callbacks in flask
-        self.domainname = platform.node()
+        # recieve IP for flask CORS config
+        self.domainname = socket.getfqdn()
+    
+        testconnection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        testconnection.connect(("8.8.8.8", 80))
+        self.ipaddress = testconnection.getsockname()[0]
+
         self.sessionid = None
         self.owner = False
         self.sessionmembers = None
@@ -304,6 +311,10 @@ class Pedal():
         self.running = True
         self.monitoring = False
         self.recording = False
+    
+        # currently playing back only one loop instead of the composite
+        self.playing = False
+        self.playbackloopindex = 0
 
         # store a local dict of all loops made on this pedal, so that they can be uploaded individually
         self.loops = {}
@@ -336,7 +347,7 @@ class Pedal():
         # check initial session membership
         sessionresp = self.getsession(timeout=1)
 
-        if self.webdebug:
+        if self.createsession:
             self.slplogger.info("Creating new session: %s" % self.newsession("rick"))
 
     # destructor method
@@ -624,41 +635,74 @@ class Pedal():
 
     # remove loop from composite
     # in offline session, only most recent loop is removeable
-    # args:     index:  device-unique id for loop to be removed (online only)
+    # args:     loopindex:  device-unique id for loop to be removed (online only)
     # return:   server response (or SUCCESS_RETURN for offline session)
 
-    def removeloop(self, index=None):
-        if index == None and len(self.loops):
-            index = max(list(self.loops.keys()))
+    def removeloop(self, loopindex=None):
+        if loopindex == None and len(self.loops):
+            loopindex = max(list(self.loops.keys()))
 
-        if index in self.loops:
+        if loopindex in self.loops:
+            if self.playing and self.playbacklooploopindex == loopindex:
+                self.stopplayback()
+
             if self.sessionid:
-                self.slplogger.info("Removing loop %d from session %s" % (index, self.sessionid))
+                self.slplogger.info("Removing loop %d from session %s" % (loopindex, self.sessionid))
 
-                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'index' : index}).text
+                serverresponse = requests.post(SERVER_URL + "removeloop", data={'mac' : self.mac, 'loopindex' : loopindex}).text
                 
                 self.slplogger.info("Loop removal returned %s" % serverresponse)
 
-                if serverresponse == SUCCESS_RETURN:
-                    self.loops.pop(index)
+                self.loops.pop(loopindex)
+
+                if serverresponse != SUCCESS_RETURN:
+                    updateloops();
                 
                 return serverresponse
 
             else:
                 self.slplogger.info("Removing loop from offline session...")
 
-                self.loops.pop(index)
+                self.loops.pop(loopindex)
                 self.genofflinecomposite()            
 
                 return SUCCESS_RETURN
         else:
 
-            self.slplogger.info("Attempted to remove nonexistent loop %d" % index)
+            self.slplogger.info("Attempted to remove nonexistent loop %d" % loopindex if loopindex is not None else -1)
+            return FAILURE_RETURN
+
+    # hear one specific local loop through the pedal instead of the composite
+    # can't enter playback mode while recording, can't record while in playback mode
+    # args:     loopindex: index of loop to play through pedal
+    # return:   SUCCESS_RETURN or FAILURE_RETURN if loop index not present
+
+    def startplayback(self, loopindex):
+        if not self.recording and loopindex in self.loops:
+            self.playing = True
+            self.playbackloopindex = loopindex
+            self.audiocompositequeue.put(self.loops[loopindex])
+            return SUCCESS_RETURN
+        else:
+            return FAILURE_RETURN
+            
+    # stop playing specific local loop and return to playing composite instead
+    # return:   SUCCESS_RETURN or FAILURE_RETURN if pedal not in playback mode
+
+    def stopplayback(self):
+        if self.playing:
+            self.playing = False
+            if self.sessionid:
+                self.compositepollthread.timestamp = None
+            else:
+                self.genofflinecomposite()
+            return SUCCESS_RETURN
+        else:
             return FAILURE_RETURN
 
     # submit given loop array to server
     # args:     loopindex: index of loop to upload in offline loops dictionary
-    # returns
+    # return:   serverresponse or OFFLINE_RETURN on connection failure
 
     def uploadloop(self, loopindex):
     
@@ -727,13 +771,12 @@ class Pedal():
     # generates composite from offline loops and pushes it to the audio processing composite queue
 
     def genofflinecomposite(self):
-        
         # sort loops in ascending order of index, so that the first loop serves as the base
-        sortedloops = [loop for _, loop in sorted(self.loops.items, key=lambda item: item[0])]
-        composite = combineloops(sortedloops)
+        sortedloops = [loop for _, loop in sorted(self.loops.items(), key=lambda item: item[0])]
+        composite = combineloops(sortedloops, bytestore=False)
+        self.audiocompositequeue.put(composite)
 
     # downloads and returns a given loop from the server 
-
     # args:     loopindex: index of loop to download
     # return:   loop data, FAILURE_RETURN if loop index not found, OFFLINE_RETURN on failure to connect
 
@@ -755,5 +798,3 @@ class Pedal():
 
             self.slplogger.info("Loop download failed. Unable to connect to server")  
             return OFFLINE_RETURN
-
-        self.audiocompositequeue.put(composite)
