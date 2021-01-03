@@ -94,7 +94,7 @@ class ControlPanel extends React.Component {
             {
                 id:             "leavesessionbutton",
                 callback:       (emptyarr) => this.leaveSession(),
-                text:           "leave session",
+                text:           <>leave<div className="truncate">&nbsp;session</div></>,
                 textPrompts:    []
             } : {
                 id:             "newsessionbutton",
@@ -107,7 +107,7 @@ class ControlPanel extends React.Component {
             {
                 id:             "endsessionbutton",
                 callback:       (emptyarr) => this.endSession(),
-                text:           "end session",
+                text:           <>end<div className="truncate">&nbsp;session</div></>,
                 textPrompts:    []
             } : {
                 id:             "joinsessionbutton",
@@ -346,12 +346,21 @@ class LoopMemberList extends React.Component {
             </div>
         );
 
+        let memberContainer = (
+            <div id="membercontainer" style={{display: this.state.focused === "members" ? "flex" : "none" }}>
+                <ul id="memberlist">
+                    <li className="member listLabel">members</li>
+                    {this.props.members.map((elem) => <li key={elem} className="member">{elem}</li>)}
+                </ul>
+            </div>
+        );
+
         return (
-            <div id="loopmembercontrol">
+            <div id="loopmembercontrol" className={this.props.inSession? "online" : "offline"}>
                 {this.props.inSession ? loopMemberFocus : ""}
                 <div id="loopcontainer" style={{display: this.state.focused === "loops" ? "flex" : "none" }}>
-                    loops:
-                    <ul>
+                    <ul id="looplist">
+                        <li className="loop listLabel">loops</li>
                         {this.props.loops.map((loopIndex) => 
                             <li key={loopIndex} className={loopIndex == this.state.playingLoop ? "playingloop" : "loop"}>
                                 {numberToWords.toWords(loopIndex)}
@@ -365,12 +374,7 @@ class LoopMemberList extends React.Component {
                             )}
                     </ul>
                 </div>
-                <div id="membercontainer" style={{display: this.state.focused === "members" ? "flex" : "none" }}>
-                    members:
-                    <ul>
-                        {this.props.members.map((elem) => <li key={elem}>{elem}</li>)}
-                    </ul>
-                </div>
+                {this.props.inSession ? memberContainer : ""}
             </div>
         ); 
     } 
@@ -477,7 +481,7 @@ class SessionControlButton extends React.Component {
                 this.reset();
             } else {
                 let innerHTML = (
-                    <div className="textentrycontainer"> 
+                    <div className="textentrycontainer">
                         <input type="text" key={this.props.textPrompts[textEntryIndex]} id={`${this.props.id}textentry`} className="textentry" placeholder={this.props.textPrompts[textEntryIndex]} onChange={event => { this.setState({textFieldValue: event.target.value})}} onKeyDown={event => {if (event.code == "Enter") { this.advance(); }}} autoFocus />
                         <div className="textentryarrow" onClick={() => this.advance()}>
                             →
@@ -508,7 +512,7 @@ class SessionControlButton extends React.Component {
         
     
         return (
-            <div id={this.props.id} className={this.props.disabled ? "sessionbuttoncontainer disabled" : "sessionbuttoncontainer" } >
+            <div id={this.props.id} className={this.props.disabled ? "sessionbuttoncontainer disabled" : "sessionbuttoncontainer" } onClick={this.state.selected ? () => this.reset() : () => ({})}>
                 {this.state.innerHTML}
             </div>
         );
