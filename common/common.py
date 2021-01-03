@@ -105,7 +105,7 @@ def combineloops(loops, composite=None, bytestore=True):
             return returndata
         else:
             for loop in loops:
-                composite = mergeloops(compsite, loop)
+                composite = mergeloops(composite, loop)
 
             return composite
     else:

@@ -73,7 +73,7 @@ def toggleloop():
 
 @flaskapp.route("/removeloop", methods=["POST"])
 def removeloop():
-    loopindex = flask.request.json['loopindex']
+    loopindex = flask.request.json['index']
     if loopindex:
         try:
             loopindex = int(loopindex)
@@ -86,7 +86,7 @@ def removeloop():
 
 @flaskapp.route("/startplayback", methods=["POST"])
 def startplayback():
-    loopindex = flask.request.json['loopindex']
+    loopindex = flask.request.json['index']
     if loopindex:
         try:
             loopindex = int(loopindex)
@@ -134,7 +134,6 @@ def getloops():
 #   Static Fileserver Endpoints
 # -------------------------------
 
-staticmethods = 0
-for staticfile in os.listdir(STATIC_DIR):
-    staticmethods += 1
-    flaskapp.add_url_rule("/static/%s" % staticfile, endpoint="static%d" % staticmethods, view_func=lambda sf=staticfile : flaskapp.send_static_file(sf), methods=["GET"])
+@flaskapp.route("/static/<filename>")
+def send_static(filename):
+    return flask.send_from_directory(STATIC_DIR, filename)

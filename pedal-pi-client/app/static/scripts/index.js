@@ -19,6 +19,8 @@ const UPDATE_PERIOD     = 2500;
 //  Global Variables
 // ------------------
 
+var pedalDomain = window.location.hostname;
+
 var numberToWords = require('number-to-words');
 
 // -----------
@@ -202,7 +204,7 @@ class ControlPanel extends React.Component {
                 }[error] || `unknown error: ${error}`);
 
                 });
-    
+    }
 
     joinSession(args) {
         if (args.length == 2) {
@@ -266,7 +268,7 @@ class ControlPanel extends React.Component {
         // flashMessage("info", `session id = ${this.state.sessionId}, in session = ${inSession}`);
 
         return (
-            <div id={inSession ? "onlinecontrolcontainer" : "offlinecontrolcontainer"}>
+            <div id="controlpanel" className={inSession ? "online" : "offline"}>
                 <LoopMemberList inSession={inSession} loops={this.state.loops} members={this.state.members} />
                 <SessionControl inSession={inSession} sessionId={this.state.sessionId} owner={this.state.owner} button1={this.state.sessionButton1} button2={this.state.sessionButton2} />
             </div>
@@ -302,7 +304,7 @@ class LoopMemberList extends React.Component {
                     'cache':    "no-cache"
                 })
                 .then(fetchRespHandler)
-                .then(data => this.setState({'playingLoop': -1})
+                .then(data => this.setState({'playingLoop': -1}))
                 .catch(error => flashMessage("error", `error while ending loop playback: ${error}`));
         } else {
             fetch(`http://${pedalDomain}/startplayback`, {
@@ -311,30 +313,30 @@ class LoopMemberList extends React.Component {
                     'headers':  {
                         'Content-Type': "application/json"
                     },
-                    'body':     JSON.stringify({'loopindex': loopIndex})
+                    'body':     JSON.stringify({'index': loopIndex})
                 })
                 .then(fetchRespHandler)
-                .then(data => this.setState({'playingLoop': loopIndex})
+                .then(data => this.setState({'playingLoop': loopIndex}))
                 .catch(error => flashMessage("error", `error while starting loop playback: ${error}`));
         }
     }
 
     removeLoop(loopIndex) {
-        fetch(`http://${pedalDomain}/removeLoop`, {
+        fetch(`http://${pedalDomain}/removeloop`, {
                 'method':   "POST",
                 'cache':    "no-cache",
                 'headers':  {
                     'Content-Type': "application/json"
                 },
-                'body':     JSON.stringify({'loopindex': loopIndex})
+                'body':     JSON.stringify({'index': loopIndex})
             })
             .then(fetchRespHandler)
             .catch(error => flashMessage("error", `error while removing loop: ${error}`));
     }
 
     render() {
-        let loopMemberControl = (
-            <div id="loopmembercontrol">
+        let loopMemberFocus = (
+            <div id="loopmemberfocus">
                 <div id="loopfocusbutton" onClick={() => this.getFocus("loops")}>
                     LOOPS
                 </div>
@@ -345,13 +347,22 @@ class LoopMemberList extends React.Component {
         );
 
         return (
-            <>
-                {this.props.inSession ? loopMemberControl : loopMemberControl}
-                // all lists in this view will have unique entries, so their values can be used as keys
+            <div id="loopmembercontrol">
+                {this.props.inSession ? loopMemberFocus : ""}
                 <div id="loopcontainer" style={{display: this.state.focused === "loops" ? "flex" : "none" }}>
                     loops:
                     <ul>
-                        {this.props.loops.map((loopIndex) => <li key={loopIndex} id={loopIndex == this.state.playingLoop ? "loop" : "playingloop"}>{numberToWords.toWords(loopIndex)}<div onClick={() => this.toggleLoop(loopIndex)}>{loopIndex == this.state.playingLoop ? "■" : "▶"}</div><div onClick={() => this.removeLoop(loopIndex)}>✖</div>)}
+                        {this.props.loops.map((loopIndex) => 
+                            <li key={loopIndex} className={loopIndex == this.state.playingLoop ? "playingloop" : "loop"}>
+                                {numberToWords.toWords(loopIndex)}
+                                <div className="toggleloopbutton" onClick={() => this.toggleLoop(loopIndex)}>
+                                    {loopIndex == this.state.playingLoop ? "■" : "▶"}
+                                </div>
+                                <div className="removeloopbutton" onClick={() => this.removeLoop(loopIndex)}>
+                                    ✖
+                                </div>
+                            </li>
+                            )}
                     </ul>
                 </div>
                 <div id="membercontainer" style={{display: this.state.focused === "members" ? "flex" : "none" }}>
@@ -360,7 +371,7 @@ class LoopMemberList extends React.Component {
                         {this.props.members.map((elem) => <li key={elem}>{elem}</li>)}
                     </ul>
                 </div>
-            </>
+            </div>
         ); 
     } 
 }
@@ -402,10 +413,11 @@ class SessionControl extends React.Component {
     render() {
         let button1 = this.props.button1;
         let button2 = this.props.button2;
+        let statusClassName = this.props.inSession ? "online" : "offline";
 
         return (
-            <div id="sessioncontrol">
-                <div id={this.props.inSession ? "onlinesessioncontrol" : "offlinesessioncontrol"}>
+            <div id="sessioncontrol" className={statusClassName}>
+                <div id="sessioninfo" className={statusClassName}>
                     {this.props.inSession ? ( <> {this.props.sessionId} <br /> {this.props.owner ? "owner" : "member"} </> ) : "no session"}
                 </div>
                 <SessionControlButton key={button1['id'] || "loadingbutton1"} ref={this.setButton1Ref} parentClick={this.resetButton2} id={button1['id'] || "loadingbutton1"} className="button" callback={button1['callback']} text={button1['text'] || "loading..."} textPrompts={button1['textPrompts'] || []} disabled={false} />
@@ -435,7 +447,7 @@ class SessionControlButton extends React.Component {
             textEntryIndex: 0,
             textEntries:    [],
             textFieldValue: "",
-            innerHTML:      (<div className="sessionButtonDiv" onClick={() => this.advance()}>{this.props.text}</div>)
+            innerHTML:      (<div className="sessionbutton" onClick={() => this.advance()}>{this.props.text}</div>)
         };
     };
 
@@ -464,12 +476,13 @@ class SessionControlButton extends React.Component {
                 this.props.callback(textEntries);
                 this.reset();
             } else {
-                let innerHTML = (<> 
-                    <input type="text" key={this.props.textPrompts[textEntryIndex]} id={`${this.props.id}textentry`} className="textentry" placeholder={this.props.textPrompts[textEntryIndex]} onChange={event => { this.setState({textFieldValue: event.target.value})}} onKeyDown={event => {if (event.code == "Enter") { this.advance(); }}} autoFocus />
-                    <div className="sessionButtonArrow" onClick={() => this.advance()}>
-                        →
-                    </div>
-                </>);
+                let innerHTML = (
+                    <div className="textentrycontainer"> 
+                        <input type="text" key={this.props.textPrompts[textEntryIndex]} id={`${this.props.id}textentry`} className="textentry" placeholder={this.props.textPrompts[textEntryIndex]} onChange={event => { this.setState({textFieldValue: event.target.value})}} onKeyDown={event => {if (event.code == "Enter") { this.advance(); }}} autoFocus />
+                        <div className="textentryarrow" onClick={() => this.advance()}>
+                            →
+                        </div>
+                    </div>);
                 this.setState({
                     selected:       true,
                     textEntryIndex: textEntryIndex,
@@ -487,7 +500,7 @@ class SessionControlButton extends React.Component {
             textEntryIndex: 0,
             textEntries:    [],
             textFieldValue: "",
-            innerHTML:      (<div className="sessionButtonDiv" onClick={() => this.advance()}>{this.props.text}</div>)
+            innerHTML:      (<div className="sessionbutton" onClick={() => this.advance()}>{this.props.text}</div>)
         });
     }
 
@@ -495,7 +508,7 @@ class SessionControlButton extends React.Component {
         
     
         return (
-            <div id={this.props.id} className={this.props.disabled ? "sessionButton disabled" : "sessionButton" } >
+            <div id={this.props.id} className={this.props.disabled ? "sessionbuttoncontainer disabled" : "sessionbuttoncontainer" } >
                 {this.state.innerHTML}
             </div>
         );
