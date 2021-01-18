@@ -99,7 +99,7 @@ class ControlPanel extends React.Component {
             } : {
                 id:             "newsessionbutton",
                 callback:       (arr) => this.newSession(arr),
-                text:           "new session",
+                text:           <>new<div className="truncate">&nbsp;session</div></>,
                 textPrompts:    ["your nickname"]
             };
 
@@ -112,7 +112,7 @@ class ControlPanel extends React.Component {
             } : {
                 id:             "joinsessionbutton",
                 callback:       (arr) => this.joinSession(arr),
-                text:           "join session",
+                text:           <>join<div className="truncate">&nbsp;session</div></>,
                 textPrompts:    ["session id", "your nickname"]
             };
 
@@ -365,10 +365,10 @@ class LoopMemberList extends React.Component {
                             <li key={loopIndex} className={loopIndex == this.state.playingLoop ? "playingloop" : "loop"}>
                                 {numberToWords.toWords(loopIndex)}
                                 <div className="toggleloopbutton" onClick={() => this.toggleLoop(loopIndex)}>
-                                    {loopIndex == this.state.playingLoop ? "■" : "▶"}
+                                    {loopIndex == this.state.playingLoop ? "stop" : "play"}
                                 </div>
                                 <div className="removeloopbutton" onClick={() => this.removeLoop(loopIndex)}>
-                                    ✖
+                                   remove 
                                 </div>
                             </li>
                             )}
