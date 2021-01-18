@@ -4,22 +4,21 @@ import numpy as np
 import time
 import os
 import sys
+import queue
+import multiprocessing
 import signal
 import platform
 import logging
 
-from pedal import Pedal
+from pedal import pedal
 
 # unit tests specifically related to pedal operation - adding and removing loops, joining sessions, etc
 # stored here so that the pedal constructor can be imported directly without triggering app/__init__.py
 
 NICKNAME = "rick@%s" % platform.node()
 
-# sleep for ten seconds while pedal runs through test file
-PEDAL_OP_SLEEP = 5
-
-INPUT_FILE = "test.in"
-OUTPUT_FILE = "test.out"
+ADDLOOPBUTTON = 'pushbutton2'
+DELLOOPBUTTON = 'pushbutton1'
 
 # log to stdout
 logger = logging.getLogger(__name__)
@@ -33,68 +32,142 @@ logger.setLevel(logging.INFO)
 sublogger = logging.getLogger("%s.pedal" % __name__)
 sublogger.setLevel(logging.WARNING)
 
+
 class OfflineTestCase(unittest.TestCase):
 
     def setUp(self):
         logger.info("setting up...")
 
-        def handler(signal, frame):
-            logger.error('CTRL-C pressed!')
-            self.pedal.end()
-            sys.exit(0)
+        self.pedalvqueues = {
+            'pushbutton1'   : queue.Queue(),
+            'pushbutton2'   : queue.Queue(),
+            'toggleswitch'  : queue.Queue(),
+            'footswitch'    : queue.Queue(),
+            'led'           : queue.Queue()
+        }
 
-        signal.signal(signal.SIGINT, handler)
-        self.pedal = Pedal(audioloadinput=True, audioinfile=INPUT_FILE, audiosaveoutput=True, audiooutfile=OUTPUT_FILE, audioplayoutput=False, loggername="%s.pedal" % __name__)
+        self.apvqueues = {
+            'audioin'   : multiprocessing.Queue(),
+            'audioout'  : multiprocessing.Queue()
+        }
+
+        self.pedal = pedal.Pedal(loggername="%s.pedal" % __name__, rpisleep=0, virtualize=True, vqueues=self.pedalvqueues, apargs={'virtualize' : True, 'vqueues' : self.apvqueues, 'itertimestamp' : True})
 
     def tearDown(self):
         logger.info("tearing down...")
     
         self.pedal.end()
-        if os.path.exists(INPUT_FILE):
-            os.remove(INPUT_FILE)
-        if os.path.exists(OUTPUT_FILE):
-            os.remove(OUTPUT_FILE)
+    
+    # helper methods
+    def writeinputbits(self, inputbits):
+        for ib in inputbits:
+            self.apvqueues['audioin'].put(ib)
 
-    def writeInput(self, inputstr):
-        with open(INPUT_FILE, mode="w") as infile:
-            infile.write(inputstr)
+    def waitonaudioin(self):
+        while not self.apvqueues['audioin'].empty():
+            logger.info("waiting on audio in...")
+            time.sleep(0.5)
 
-    def readOutput(self):
-        with open(OUTPUT_FILE) as outfile:
-            return outfile.read().strip()
+    def readoutputbits(self, outputbits):
+        for obi in range(outputbits.size):
+            outputbits[obi] = self.apvqueues['audioout'].get()
 
-    def strRep(self, nparr):
-        return " ".join([str(b) for b in nparr])
+    def pushbutton(self, button):
+        if button in self.pedalvqueues:
+            self.pedalvqueues[button].put(pedal.PUSHBUTTON_PRESS)
+            self.pedalvqueues[button].put(pedal.PUSHBUTTON_RELEASE)
 
-    # preliminary test to ensure reading input from file works as expected
-    def testFileInput(self):
-        inputbits = np.random.randint(low=1, high=500, size=100)
-        inputstr = self.strRep(inputbits)
-        
-        self.writeInput(inputstr)
-        self.pedal.run()
-        time.sleep(PEDAL_OP_SLEEP)
-        outputstr = self.readOutput()
-        expectedoutput = inputstr
+    # multithreaded queue behavior gets so odd that the best way to avoid headaches is to undertake each test one at a time, starting a new process each time
+    def test(self):
+        testManyLoops(self)
 
-        assert outputstr == expectedoutput
+# preliminary test to ensure reading input from queue works as expected
+def testQueueInput(self):
+    inputbits   = np.random.randint(low=1, high=500, size=100)
+    outputbits  = np.zeros_like(inputbits)
+    
+    self.pedal.run()
 
-    def testSingleLoop(self):
-        loop = np.random.randint(low=1, high=500, size=100)
-        postloopinput = np.random.randint(low=1, high=500, size=100)
-        norm = np.mean(loop, dtype=int)
-        overdub = loop + postloopinput - norm 
-        inputstr = "recording %s recording %s" % (self.strRep(loop), self.strRep(postloopinput))
-       
-        self.writeInput(inputstr) 
-        self.pedal.run()
-        time.sleep(PEDAL_OP_SLEEP)
-        outputstr = self.readOutput()
+    self.writeinputbits(inputbits)
 
-        expectedoutput = "%s %s" % (self.strRep(loop), self.strRep(overdub))
+    self.readoutputbits(outputbits)
+    
+    assert np.array_equal(outputbits, inputbits)
 
-        assert outputstr == expectedoutput
-        
+def testSingleLoop(self):
+    loop            = np.random.randint(low=1, high=200, size=200)
+    postloopinput   = np.random.randint(low=1, high=200, size=200)
+    norm            = np.mean(loop, dtype=int)
+    overdub         = loop + postloopinput - norm 
+    expectedoutput  = np.append(loop, overdub)
+
+    # needs to be "pressed" before starting or else audio processor will hang on and read first input before registering to start loop
+    self.pushbutton(ADDLOOPBUTTON)
+
+    time.sleep(1)
+
+    self.pedal.run()
+
+    time.sleep(1)
+
+    # write all but last bit, then press button, then add last bit
+    # otherwise it will hang for post-loop audio input before registering addloopbutton
+    self.writeinputbits(loop[:-1])
+
+    time.sleep(1)
+
+    self.pushbutton(ADDLOOPBUTTON)
+
+    time.sleep(1)
+
+    self.writeinputbits(loop[-1:])
+    self.writeinputbits(postloopinput)
+
+    outputbits = np.zeros_like(expectedoutput)
+    self.readoutputbits(outputbits)
+
+    # print("expected: %s" % str(expectedoutput))
+    # print("recieved: %s" % str(outputbits))
+
+    assert np.array_equal(outputbits, expectedoutput)
+
+def testManyLoops(self):
+    expectedoutput = np.empty(0, dtype=int)
+
+    pedalrun = False
+
+    for i in range(5):
+        loop = np.random.randint(low=1, high=200, size=50)
+        if len(expectedoutput) >= len(loop):
+            composite = expectedoutput[-1 * loop.size:]
+            norm = np.mean(composite, dtype=int)
+            overdub = composite + loop - norm
+            expectedoutput = np.append(expectedoutput, overdub)
+        else:
+            expectedoutput = np.append(expectedoutput, loop)
+
+        if not pedalrun:
+            self.pushbutton(ADDLOOPBUTTON)
+            time.sleep(1)
+            self.pedal.run()
+            pedalrun = True
+
+        self.writeinputbits(loop[:-1])
+
+        time.sleep(1)
+
+        self.pushbutton(ADDLOOPBUTTON)
+        if i < 4:
+            self.pushbutton(ADDLOOPBUTTON)
+
+        time.sleep(2)
+
+        self.writeinputbits(loop[-1:])
+
+    outputbits = np.zeros_like(expectedoutput)
+    self.readoutputbits(outputbits)
+
+    assert np.array_equal(outputbits, expectedoutput)
 
 if __name__ == "__main__":
     unittest.main()

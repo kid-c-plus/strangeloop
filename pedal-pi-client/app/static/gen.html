@@ -1,0 +1,71 @@
+<html>
+    <head>
+        <title>strangeloop</title>
+        <link rel="stylesheet" href="static/dist/style.css?v=1.1">
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.js"></script>
+        <script type="text/javascript" src="static/dist/numberToWords.min.js"></script>
+    </head>
+    <body>
+        <div id="root">
+            <div id="logocontainer">
+                strangeloop
+            </div>
+            <div id="controlcontainer">
+                <div id="controlpanel" className="online">
+                    <div id="loopmembercontrol">
+                        <div id="loopmemberfocus">
+                            <div id="loopfocusbutton">
+                                LOOPS
+                            </div>
+                            <div id="memberfocusbutton">
+                                MEMBERS
+                            </div>
+                        </div>
+                        <div id="loopcontainer" style="display: flex;">
+                            loops:
+                            <ul>
+                                <li class="loop">
+                                    one
+                                    <div class="toggleloopbutton">
+                                        ▶
+                                    </div>
+                                    <div class="toggleloopbutton">
+                                        ✖
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+                        <div id="membercontainer" style="display: none;">
+                            members:
+                            <ul>
+                                <li>
+                                    rick
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
+                    <div id="sessioncontrol" class="online">
+                        <div id="sessioninfo" class="online"> 
+                            htyy <br> 
+                            owner 
+                        </div>
+                        <div id="leavesessionbutton" class="sessionbuttoncontainer">
+                            <div class="sessionbutton">
+                                leave session
+                            </div>
+                        </div>
+                        <div id="endsessionbutton" class="sessionbuttoncontainer">
+                            <div class="sessionbutton">
+                                end session
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script>
+                var pedalDomain = "strangeloop";
+        </script>
+        <script src="static/dist/bundle.js"></script>
+    </body>
+</html>

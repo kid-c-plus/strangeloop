@@ -1,50 +1,20 @@
 <html>
     <head>
         <title>strangeloop</title>
-        <link rel="stylesheet" href="static/style.css?v=1.1" />
-        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+        <link rel="stylesheet" href="static/dist/style.css?v=1.1" />
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.js"></script>
+        <script type="text/javascript" src="static/dist/numberToWords.min.js"></script>
     </head>
     <body>
-        <div id="sessioncontrol" class="controlunit">
-            <div id="sessionmessagecontainer">
-                {% for message in get_flashed_messages() %}
-                <div class="flash">{{ message }}</div>
-                {% endfor %}
+        <div id="root">
+            <div id="logocontainer">
+                <div id="logodiv">
+                    <img id="logo" src="static/logo.png">
+                </div>
             </div>
-            {% if pedal.sessionid %}
-            <label id="sessionid">{{ pedal.sessionid }}</label>
-                {% if pedal.owner %}
-                <label id="owner">Owner</label>
-                {% else %}
-                <label id="owner">Member</label>
-                {% endif %}
-            {% else %}
-            <label id="sessionid">No Session</label>
-            <label id="owner">&nbsp;</label>
-            {% endif %}
-            <form id="newsessionform" action="/newsession" method="post">
-                <label id="newsessionlabel">New Session:</label>
-                <input type="text" id="newsessionnick" name="nickname" placeholder="Your Nickname" {% if pedal.sessionid %} "disabled" {% endif %}>
-                <input type="submit" id="newsessionsubmit" value="Create New Session" {% if pedal.sessionid %} "disabled" {% endif %}>
-            </form>
-            <form id="joinsessionform" action="/joinsession" method="post">
-                <label id="joinsessionlabel">Join Session:</label>
-                <input type="text" id="joinsessionid" name="sessionid" placeholder="Session to Join" {% if pedal.sessionid %} "disabled" {% endif %}>
-                <input type="text" id="joinsessionnick" name="nickname" placeholder="Your Nickname" {% if pedal.sessionid %} "disabled" {% endif %}>
-                <input type="submit" id="joinsessionsubmit" value="Join Session" {% if pedal.sessionid %} "disabled" {% endif %}>
-            </form>
-            <form id="leavesessionform" action="/leavesession" method="post">
-                <input type="submit" id="leavesessionsubmit" value="Leave Session" {% if not pedal.sessionid %} "disabled" {% endif %}> 
-            </form>
-            <form id="endsessionform" action="/endsession" method="post">
-                <input type="submit" id="endsessionsubmit" value="End Session" {% if not (pedal.sessionid and pedal.owner) %} "disabled" {% endif %}>
-            </form>
+            <div id="controlcontainer"></div>
         </div>
-        <script>
-            var inSession = {% if pedal.sessionid %} true; {% else %} false; {% endif %}
-            var owner = {% if (pedal.sessionid and pedal.owner) %} true; {% else %} false; {% endif %}	
-	        var pedalDomain = "{{ pedal.domainname }}";
-        </script>
-        <script src="static/script.js?v=1.2"></script>
+        <script src="static/dist/bundle.js"></script>
     </body>
 </html>
